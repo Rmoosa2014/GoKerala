@@ -215,6 +215,7 @@
   <button class="btn" onclick="UI.toggleOffers()">🎁 Offers</button>
   <button class="btn" onclick="UI.toggleMinimapSize()">🗺️ Map</button>
   <button class="btn" onclick="UI.toggleSettings()">⚙️ Settings</button>
+  <button class="btn gold" id="authBtn" onclick="Auth.handleAuthClick()">🔑 Login</button>
 </div>
 
 <!-- INTERACTION PROMPT -->
@@ -342,6 +343,85 @@
 const SUPABASE_URL = "https://mkhjctnplddegomialwk.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_JznPm-DU6lsiO2VRfRwPtA_TJf_8JWW";
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const Auth = {
+  currentUser: null,
+  profile: null,
+
+  async init() {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session?.user) {
+      this.currentUser = session.user;
+      await this.loadProfile();
+    }
+    this.updateUI();
+
+    supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+      this.currentUser = session?.user || null;
+      if (this.currentUser) {
+        await this.loadProfile();
+      } else {
+        this.profile = null;
+      }
+      this.updateUI();
+    });
+  },
+
+  async handleAuthClick() {
+    if (this.currentUser) {
+      await supabaseClient.auth.signOut();
+      UI.toast("LOGGED OUT", "See you again!");
+    } else {
+      const { error } = await supabaseClient.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin + window.location.pathname
+        }
+      });
+      if (error) UI.toast("LOGIN ERROR", error.message);
+    }
+  },
+
+  async loadProfile() {
+    if (!this.currentUser) return;
+    
+    // Check if profile exists
+    let { data: profile, error } = await supabaseClient
+      .from('profiles')
+      .select('*')
+      .eq('id', this.currentUser.id)
+      .single();
+
+    if (!profile) {
+      // First-time user: create pending profile
+      const newProfile = {
+        id: this.currentUser.id,
+        full_name: this.currentUser.user_metadata?.full_name || 'Explorer',
+        email: this.currentUser.email,
+        role: 'player',
+        status: 'pending',
+        coins: 10
+      };
+      await supabaseClient.from('profiles').insert([newProfile]);
+      this.profile = newProfile;
+    } else {
+      this.profile = profile;
+    }
+  },
+
+  updateUI() {
+    const btn = document.getElementById('authBtn');
+    if (!btn) return;
+    if (this.currentUser) {
+      const name = this.profile?.full_name || 'User';
+      const status = this.profile?.status || 'pending';
+      btn.textContent = `👤 ${name} (${status.toUpperCase()})`;
+      btn.classList.remove('gold');
+    } else {
+      btn.textContent = "🔑 Login with Google";
+      btn.classList.add('gold');
+    }
+  }
+};
 const TAU = Math.PI*2;
 function rand(a,b){return a+Math.random()*(b-a);}
 function choice(arr){return arr[Math.floor(Math.random()*arr.length)];}
@@ -2247,6 +2327,7 @@ function init(){
   Audio=new AudioManager();
 
   Save.load();
+  Auth.init();
   bindKeys();
   UI.refreshStats();
   UI.refreshCoins();
