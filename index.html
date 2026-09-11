@@ -386,14 +386,8 @@ const Auth = {
   profile: null,
 
   async init() {
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    if (session?.user) {
-      this.currentUser = session.user;
-      await this.loadProfile();
-    }
-    this.updateUI();
-
-    supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+    // 1. Listen to session changes first
+    supabaseClient.auth.onAuthStateChange(async (event, session) => {
       this.currentUser = session?.user || null;
       if (this.currentUser) {
         await this.loadProfile();
@@ -402,15 +396,28 @@ const Auth = {
       }
       this.updateUI();
     });
+
+    // 2. Fetch active session if already logged in
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (session?.user) {
+        this.currentUser = session.user;
+        await this.loadProfile();
+      }
+    } catch (e) {
+      console.error("Session fetch error:", e);
+    }
+    this.updateUI();
   },
 
   async handleAuthClick() {
     if (this.currentUser) {
-      this.toggleProfile(); // Open profile card if already logged in
+      this.toggleProfile();
     } else {
+      const currentUrl = window.location.href.split('#')[0].split('?')[0];
       const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: window.location.origin + window.location.pathname }
+        options: { redirectTo: currentUrl }
       });
       if (error) UI.toast("LOGIN ERROR", error.message);
     }
@@ -418,43 +425,60 @@ const Auth = {
 
   async logout() {
     await supabaseClient.auth.signOut();
+    this.currentUser = null;
+    this.profile = null;
     this.toggleProfile(false);
+    this.updateUI();
     UI.toast("LOGGED OUT", "See you again!");
   },
 
   async loadProfile() {
     if (!this.currentUser) return;
-    
-    // Fetch profile from database
-    let { data: profile, error } = await supabaseClient
-      .from('profiles')
-      .select('*')
-      .eq('id', this.currentUser.id)
-      .single();
+    try {
+      // Check existing row
+      let { data: profile, error } = await supabaseClient
+        .from('profiles')
+        .select('*')
+        .eq('id', this.currentUser.id)
+        .maybeSingle();
 
-    if (!profile) {
-      // First-time user: insert into database
-      const newProfile = {
-        id: this.currentUser.id,
-        full_name: this.currentUser.user_metadata?.full_name || 'Explorer',
-        email: this.currentUser.email,
-        role: 'player',
-        status: 'pending',
-        coins: 10
-      };
-      await supabaseClient.from('profiles').insert([newProfile]);
-      this.profile = newProfile;
-    } else {
-      this.profile = profile;
+      if (!profile) {
+        // Create initial profile row
+        const newProfile = {
+          id: this.currentUser.id,
+          full_name: this.currentUser.user_metadata?.full_name || this.currentUser.email.split('@')[0],
+          email: this.currentUser.email,
+          role: 'player',
+          status: 'pending',
+          coins: 10
+        };
+        const { data: inserted, error: insErr } = await supabaseClient
+          .from('profiles')
+          .insert([newProfile])
+          .select()
+          .single();
+
+        if (insErr) {
+          console.error("Profile insert failed (Check RLS):", insErr);
+        } else {
+          this.profile = inserted;
+        }
+      } else {
+        this.profile = profile;
+      }
+
+      if (this.profile) {
+        Economy.coins = this.profile.coins;
+        UI.refreshCoins();
+      }
+    } catch (err) {
+      console.error("Profile error:", err);
     }
-    
-    // Sync local economy with database coins
-    Economy.coins = this.profile.coins;
-    UI.refreshCoins();
   },
 
   toggleProfile(forceState) {
     const p = document.getElementById('profilePanel');
+    if (!p) return;
     if (forceState !== undefined) {
       forceState ? p.classList.add('show') : p.classList.remove('show');
     } else {
@@ -464,38 +488,42 @@ const Auth = {
 
   updateUI() {
     const btn = document.getElementById('authBtn');
-    const chatInput = document.getElementById('chatInput');
-    const chatBtn = document.getElementById('chatSendBtn');
-    
+    if (!btn) return;
+
     if (this.currentUser) {
-      const name = this.profile?.full_name || 'User';
+      const name = this.profile?.full_name || this.currentUser.user_metadata?.full_name || 'Explorer';
       const avatar = this.currentUser.user_metadata?.avatar_url;
-      
-      btn.innerHTML = `<img src="${avatar}" style="width:16px; height:16px; border-radius:50%; vertical-align:middle; margin-right:6px;"> ${name.split(' ')[0]}`;
+      const role = (this.profile?.role || 'player').toUpperCase();
+      const status = (this.profile?.status || 'pending').toUpperCase();
+
+      btn.innerHTML = avatar 
+        ? `<img src="${avatar}" style="width:18px;height:18px;border-radius:50%;vertical-align:middle;margin-right:6px;"> ${name.split(' ')[0]}`
+        : `👤 ${name.split(' ')[0]}`;
       btn.classList.remove('gold');
-      
-      // Update Profile Card
+
       document.getElementById('profName').textContent = name;
       document.getElementById('profEmail').textContent = this.currentUser.email;
-      document.getElementById('profRole').textContent = (this.profile?.role || 'player').toUpperCase() + ' - ' + (this.profile?.status || 'pending').toUpperCase();
-      document.getElementById('profCoins').textContent = `Coins: ${this.profile?.coins || 0} 🪙`;
-      if (avatar) {
-        document.getElementById('profAvatar').src = avatar;
-        document.getElementById('profAvatar').style.display = 'block';
+      document.getElementById('profRole').textContent = `${role} • ${status}`;
+      document.getElementById('profCoins').textContent = `Coins: ${this.profile?.coins || 10} 🪙`;
+
+      const avatarEl = document.getElementById('profAvatar');
+      if (avatar && avatarEl) {
+        avatarEl.src = avatar;
+        avatarEl.style.display = 'block';
       }
 
-      // Enable Chat UI
-      document.getElementById('chatPanel').classList.add('show');
-      chatInput.disabled = false;
-      chatBtn.disabled = false;
-      chatInput.placeholder = "Type a message...";
-
+      const chatPanel = document.getElementById('chatPanel');
+      if (chatPanel) {
+        chatPanel.classList.add('show');
+        document.getElementById('chatInput').disabled = false;
+        document.getElementById('chatSendBtn').disabled = false;
+      }
     } else {
-      btn.textContent = "🔑 Login with Google";
+      btn.innerHTML = "🔑 Login with Google";
       btn.classList.add('gold');
-      document.getElementById('chatPanel').classList.remove('show');
-      chatInput.disabled = true;
-      chatBtn.disabled = true;
+      const chatPanel = document.getElementById('chatPanel');
+      if (chatPanel) chatPanel.classList.remove('show');
+      this.toggleProfile(false);
     }
   }
 };
@@ -1297,7 +1325,11 @@ class PlayerController{
   }
   setPosition(x,z){ this.x=x; this.z=z; this.mesh.position.set(x, elevationAt(x,z), z); }
   update(dt, keys, camAzimuth){
-    if(this.vehicle){ this.mesh.visible=false; return; }
+    if (!Auth.profile || Auth.profile.status !== 'approved') {
+      // Allow camera to orbit, but disable character movement
+      animateHumanoid(this.mesh, dt, false);
+      return;
+    }
     this.mesh.visible=true;
     const forward = keys['w']||keys['arrowup'];
     const backward = keys['s']||keys['arrowdown'];
@@ -1328,6 +1360,7 @@ class PlayerController{
 
 function updateDriving(dt, keys){
   const v=Player.vehicle; if(!v) return;
+  if (!Auth.profile || Auth.profile.status !== 'approved') return;
   const forward=keys['w']||keys['arrowup'];
   const backward=keys['s']||keys['arrowdown'];
   const steerL=keys['a']||keys['arrowleft'];
