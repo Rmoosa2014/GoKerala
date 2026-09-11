@@ -98,7 +98,15 @@
     transition:opacity .3s ease, transform .3s ease; box-shadow:0 6px 18px rgba(0,0,0,.4); white-space:nowrap;}
   .notif.show{opacity:1;transform:translateY(0);}
   .notif .sub{font-weight:500;color:var(--gold-soft);margin-left:6px;}
-
+/* ---------- REGISTRATION MODAL ---------- */
+  #regModal { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.95); z-index:90;
+    width:320px; padding:20px; opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease; }
+  #regModal.show { opacity:1; transform:translate(-50%,-50%) scale(1); pointer-events:auto; }
+  #regModal h3 { margin:0 0 10px; font-size:18px; color:var(--gold-soft); text-align:center; }
+  #regModal label { display:block; font-size:12px; color:var(--text-dim); margin:10px 0 4px; }
+  #regModal select, #regModal input { width:100%; background:rgba(255,255,255,0.06); border:1px solid rgba(224,161,44,0.3);
+    border-radius:8px; color:var(--text); padding:8px 10px; font-size:13px; margin-bottom:10px; }
+  #regModal .footRow { display:flex; justify-content:space-between; margin-top:15px; }
   /* ---------- SHOP DISCOVERY MODAL ---------- */
   #shopModal{position:fixed;top:80px;left:50%;transform:translateX(-50%) scale(0.95);z-index:55;
     width:300px;padding:16px 18px;opacity:0;pointer-events:none;transition:opacity .2s ease, transform .2s ease;}
@@ -288,7 +296,25 @@
 
 <!-- NOTIFICATIONS -->
 <div id="notifStack"></div>
+<!-- REGISTRATION MODAL (Pre-Auth) -->
+<div id="regModal" class="panel">
+  <h3>Join Explore Kerala</h3>
+  <p style="font-size:12px; color:var(--text-dim); text-align:center; margin-top:0;">Create your profile before logging in.</p>
+  
+  <label>I want to join as a:</label>
+  <select id="regRole">
+    <option value="player">Explorer (Player)</option>
+    <option value="shop_owner">Shop Owner</option>
+  </select>
 
+  <label>Contact Number (Optional):</label>
+  <input type="text" id="regPhone" placeholder="Enter phone number" />
+
+  <div class="footRow">
+    <button class="btn small" onclick="document.getElementById('regModal').classList.remove('show')">Cancel</button>
+    <button class="btn small gold" onclick="Auth.proceedToGoogle()">🔑 Continue to Google</button>
+  </div>
+</div>
 <!-- SHOP DISCOVERY MODAL -->
 <div id="shopModal" class="panel">
   <button class="closeX" onclick="UI.closeShopModal()">✕</button>
@@ -389,7 +415,6 @@ const Auth = {
   profile: null,
 
   async init() {
-    // 1. Listen to session changes first
     supabaseClient.auth.onAuthStateChange(async (event, session) => {
       this.currentUser = session?.user || null;
       if (this.currentUser) {
@@ -400,7 +425,6 @@ const Auth = {
       this.updateUI();
     });
 
-    // 2. Fetch active session if already logged in
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
       if (session?.user) {
@@ -413,17 +437,29 @@ const Auth = {
     this.updateUI();
   },
 
-  async handleAuthClick() {
+  handleAuthClick() {
     if (this.currentUser) {
-      this.toggleProfile();
+      this.toggleProfile(); // Open profile if logged in
     } else {
-      const currentUrl = window.location.href.split('#')[0].split('?')[0];
-      const { error } = await supabaseClient.auth.signInWithOAuth({
-        provider: 'google',
-        options: { redirectTo: currentUrl }
-      });
-      if (error) UI.toast("LOGIN ERROR", error.message);
+      // If NOT logged in, show the new Registration Modal
+      document.getElementById('regModal').classList.add('show');
     }
+  },
+
+  async proceedToGoogle() {
+    // Save form data to browser memory before redirecting
+    const role = document.getElementById('regRole').value;
+    const phone = document.getElementById('regPhone').value;
+    localStorage.setItem('tempRegRole', role);
+    localStorage.setItem('tempRegPhone', phone);
+
+    const currentUrl = window.location.href.split('#')[0].split('?')[0];
+    const { error } = await supabaseClient.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: currentUrl }
+    });
+    
+    if (error) UI.toast("LOGIN ERROR", error.message);
   },
 
   async logout() {
@@ -438,7 +474,7 @@ const Auth = {
   async loadProfile() {
     if (!this.currentUser) return;
     try {
-      // Check existing row
+      // 1. Try to fetch existing profile
       let { data: profile, error } = await supabaseClient
         .from('profiles')
         .select('*')
@@ -446,15 +482,23 @@ const Auth = {
         .maybeSingle();
 
       if (!profile) {
-        // Create initial profile row
+        // 2. If no profile, read the data we saved before going to Google
+        const savedRole = localStorage.getItem('tempRegRole') || 'player';
+        const savedPhone = localStorage.getItem('tempRegPhone') || '';
+        
+        // Auto-approve players so they can move immediately. Shop owners stay pending.
+        const setStatus = savedRole === 'shop_owner' ? 'pending' : 'approved';
+
         const newProfile = {
           id: this.currentUser.id,
           full_name: this.currentUser.user_metadata?.full_name || this.currentUser.email.split('@')[0],
           email: this.currentUser.email,
-          role: 'player',
-          status: 'pending',
+          role: savedRole,
+          phone: savedPhone,
+          status: setStatus,
           coins: 10
         };
+
         const { data: inserted, error: insErr } = await supabaseClient
           .from('profiles')
           .insert([newProfile])
@@ -462,10 +506,14 @@ const Auth = {
           .single();
 
         if (insErr) {
-          console.error("Profile insert failed (Check RLS):", insErr);
+          console.error("Profile insert failed. Please check SQL RLS policies.", insErr);
         } else {
           this.profile = inserted;
         }
+
+        // Clean up temporary data
+        localStorage.removeItem('tempRegRole');
+        localStorage.removeItem('tempRegPhone');
       } else {
         this.profile = profile;
       }
@@ -475,7 +523,7 @@ const Auth = {
         UI.refreshCoins();
       }
     } catch (err) {
-      console.error("Profile error:", err);
+      console.error("Profile load error:", err);
     }
   },
 
@@ -491,6 +539,9 @@ const Auth = {
 
   updateUI() {
     const btn = document.getElementById('authBtn');
+    const regModal = document.getElementById('regModal');
+    if (regModal) regModal.classList.remove('show'); // Hide reg modal if open
+
     if (!btn) return;
 
     if (this.currentUser) {
@@ -522,7 +573,7 @@ const Auth = {
         document.getElementById('chatSendBtn').disabled = false;
       }
     } else {
-      btn.innerHTML = "🔑 Login with Google";
+      btn.innerHTML = "🔑 Login";
       btn.classList.add('gold');
       const chatPanel = document.getElementById('chatPanel');
       if (chatPanel) chatPanel.classList.remove('show');
