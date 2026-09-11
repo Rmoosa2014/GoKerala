@@ -2461,14 +2461,25 @@ function init(){
   Audio=new AudioManager();
 
   Save.load();
-  Auth.init();
+ 
   bindKeys();
   UI.refreshStats();
   UI.refreshCoins();
 
   animate();
 }
-window.addEventListener('load', init);
+// Add Enter key support for chat
+window.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.activeElement === document.getElementById('chatInput')) {
+    Chat.send();
+  }
+});
+
+// START SUPABASE IMMEDIATELY
+Auth.init();
+
+const TAU = Math.PI*2;
+function rand(a,b){return a+Math.random()*(b-a);}
 </script>
 </body>
 </html>
