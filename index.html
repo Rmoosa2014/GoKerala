@@ -110,6 +110,21 @@
   #shopModal .desc{font-size:12.5px;color:var(--text-dim);margin-bottom:10px;display:none;line-height:1.45;}
   #shopModal .row{display:flex;gap:8px;flex-wrap:wrap;}
   #shopModal .closeX{position:absolute;top:8px;right:10px;background:none;color:var(--text-dim);font-size:16px;}
+/* ---------- PROFILE & CHAT PANELS ---------- */
+  #profilePanel { position:fixed; top:64px; right:14px; width:280px; z-index:50; padding:16px; display:none; }
+  #profilePanel.show { display:block; }
+  #profilePanel .avatar { width:48px; height:48px; border-radius:50%; margin-bottom:10px; border:2px solid var(--gold); }
+  #profilePanel h3 { margin:0 0 4px; font-size:16px; color:var(--gold-soft); }
+  #profilePanel .role-tag { font-size:11px; background:rgba(224,161,44,0.2); padding:3px 8px; border-radius:12px; display:inline-block; margin-bottom:12px; color:var(--text); }
+  #profilePanel .info { font-size:12.5px; color:var(--text-dim); margin-bottom:6px; }
+  
+  #chatPanel { position:fixed; bottom:14px; left:14px; width:320px; height:250px; z-index:45; display:flex; flex-direction:column; display:none; }
+  #chatPanel.show { display:flex; }
+  #chatMessages { flex:1; overflow-y:auto; padding:10px; font-size:12px; display:flex; flex-direction:column; gap:6px; }
+  #chatMessages .msg { background:rgba(255,255,255,0.05); padding:6px 10px; border-radius:8px; line-height:1.4; }
+  #chatMessages .msg .author { color:var(--gold-soft); font-weight:bold; margin-right:6px; }
+  #chatInputWrap { display:flex; gap:6px; padding:10px; border-top:1px solid var(--panel-border); }
+  #chatInputWrap input { flex:1; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.2); color:#fff; padding:6px 10px; border-radius:6px; font-size:12px; }
 
   /* ---------- OFFERS PANEL ---------- */
   #offersPanel{position:fixed;top:64px;right:14px;width:300px;max-height:70vh;overflow:auto;z-index:50;
@@ -218,6 +233,29 @@
   <button class="btn gold" id="authBtn" onclick="Auth.handleAuthClick()">🔑 Login</button>
 </div>
 
+<!-- PROFILE PANEL -->
+<div id="profilePanel" class="panel">
+  <img id="profAvatar" class="avatar" src="" style="display:none;" />
+  <h3 id="profName">Player Name</h3>
+  <div id="profRole" class="role-tag">Pending</div>
+  <div class="info" id="profEmail"></div>
+  <div class="info" id="profCoins">Coins: 0</div>
+  <div style="margin-top:16px; display:flex; gap:8px;">
+    <button class="btn small danger" onclick="Auth.logout()">Sign Out</button>
+    <button class="btn small" onclick="Auth.toggleProfile()">Close</button>
+  </div>
+</div>
+
+<!-- CHAT PANEL -->
+<div id="chatPanel" class="panel">
+  <div id="chatMessages">
+    <div class="msg"><span class="author">System:</span> Welcome to Kerala! Login to chat.</div>
+  </div>
+  <div id="chatInputWrap">
+    <input type="text" id="chatInput" placeholder="Press Enter to chat..." disabled />
+    <button class="btn small" id="chatSendBtn" onclick="Chat.send()" disabled>Send</button>
+  </div>
+</div>
 <!-- INTERACTION PROMPT -->
 <div id="interactionPrompt" class="panel"></div>
 
@@ -368,23 +406,26 @@ const Auth = {
 
   async handleAuthClick() {
     if (this.currentUser) {
-      await supabaseClient.auth.signOut();
-      UI.toast("LOGGED OUT", "See you again!");
+      this.toggleProfile(); // Open profile card if already logged in
     } else {
       const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: 'google',
-        options: {
-          redirectTo: window.location.origin + window.location.pathname
-        }
+        options: { redirectTo: window.location.origin + window.location.pathname }
       });
       if (error) UI.toast("LOGIN ERROR", error.message);
     }
   },
 
+  async logout() {
+    await supabaseClient.auth.signOut();
+    this.toggleProfile(false);
+    UI.toast("LOGGED OUT", "See you again!");
+  },
+
   async loadProfile() {
     if (!this.currentUser) return;
     
-    // Check if profile exists
+    // Fetch profile from database
     let { data: profile, error } = await supabaseClient
       .from('profiles')
       .select('*')
@@ -392,7 +433,7 @@ const Auth = {
       .single();
 
     if (!profile) {
-      // First-time user: create pending profile
+      // First-time user: insert into database
       const newProfile = {
         id: this.currentUser.id,
         full_name: this.currentUser.user_metadata?.full_name || 'Explorer',
@@ -406,22 +447,82 @@ const Auth = {
     } else {
       this.profile = profile;
     }
+    
+    // Sync local economy with database coins
+    Economy.coins = this.profile.coins;
+    UI.refreshCoins();
+  },
+
+  toggleProfile(forceState) {
+    const p = document.getElementById('profilePanel');
+    if (forceState !== undefined) {
+      forceState ? p.classList.add('show') : p.classList.remove('show');
+    } else {
+      p.classList.toggle('show');
+    }
   },
 
   updateUI() {
     const btn = document.getElementById('authBtn');
-    if (!btn) return;
+    const chatInput = document.getElementById('chatInput');
+    const chatBtn = document.getElementById('chatSendBtn');
+    
     if (this.currentUser) {
       const name = this.profile?.full_name || 'User';
-      const status = this.profile?.status || 'pending';
-      btn.textContent = `👤 ${name} (${status.toUpperCase()})`;
+      const avatar = this.currentUser.user_metadata?.avatar_url;
+      
+      btn.innerHTML = `<img src="${avatar}" style="width:16px; height:16px; border-radius:50%; vertical-align:middle; margin-right:6px;"> ${name.split(' ')[0]}`;
       btn.classList.remove('gold');
+      
+      // Update Profile Card
+      document.getElementById('profName').textContent = name;
+      document.getElementById('profEmail').textContent = this.currentUser.email;
+      document.getElementById('profRole').textContent = (this.profile?.role || 'player').toUpperCase() + ' - ' + (this.profile?.status || 'pending').toUpperCase();
+      document.getElementById('profCoins').textContent = `Coins: ${this.profile?.coins || 0} 🪙`;
+      if (avatar) {
+        document.getElementById('profAvatar').src = avatar;
+        document.getElementById('profAvatar').style.display = 'block';
+      }
+
+      // Enable Chat UI
+      document.getElementById('chatPanel').classList.add('show');
+      chatInput.disabled = false;
+      chatBtn.disabled = false;
+      chatInput.placeholder = "Type a message...";
+
     } else {
       btn.textContent = "🔑 Login with Google";
       btn.classList.add('gold');
+      document.getElementById('chatPanel').classList.remove('show');
+      chatInput.disabled = true;
+      chatBtn.disabled = true;
     }
   }
 };
+
+const Chat = {
+  send() {
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if (!text || !Auth.profile) return;
+    
+    // For now, this just adds it locally. Next step is wiring this to Supabase Realtime!
+    const msgBox = document.createElement('div');
+    msgBox.className = 'msg';
+    msgBox.innerHTML = `<span class="author">${Auth.profile.full_name.split(' ')[0]}:</span> ${text}`;
+    document.getElementById('chatMessages').appendChild(msgBox);
+    document.getElementById('chatMessages').scrollTop = document.getElementById('chatMessages').scrollHeight;
+    
+    input.value = '';
+  }
+};
+
+// Add Enter key support for chat
+window.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.activeElement === document.getElementById('chatInput')) {
+    Chat.send();
+  }
+});
 const TAU = Math.PI*2;
 function rand(a,b){return a+Math.random()*(b-a);}
 function choice(arr){return arr[Math.floor(Math.random()*arr.length)];}
