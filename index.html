@@ -551,6 +551,10 @@ window.addEventListener('keydown', e => {
     Chat.send();
   }
 });
+
+// START SUPABASE IMMEDIATELY
+Auth.init();
+
 const TAU = Math.PI*2;
 function rand(a,b){return a+Math.random()*(b-a);}
 function choice(arr){return arr[Math.floor(Math.random()*arr.length)];}
@@ -2468,18 +2472,11 @@ function init(){
 
   animate();
 }
-// Add Enter key support for chat
-window.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && document.activeElement === document.getElementById('chatInput')) {
-    Chat.send();
-  }
-});
+animate();
+}
 
-// START SUPABASE IMMEDIATELY
-Auth.init();
-
-const TAU = Math.PI*2;
-function rand(a,b){return a+Math.random()*(b-a);}
+// THIS LINE IS CRITICAL TO START THE GAME
+window.addEventListener('load', init);
 </script>
 </body>
 </html>
