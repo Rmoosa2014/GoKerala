@@ -1,1 +1,2260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Explore Kerala — Treasure &amp; Taste</title>
+<style>
+  :root{
+    --gold:#e0a12c;
+    --gold-soft:#f4c568;
+    --leaf:#2f6b3f;
+    --leaf-light:#4c8c3d;
+    --panel-bg:rgba(14,18,14,0.82);
+    --panel-border:rgba(224,161,44,0.55);
+    --text:#f3efe4;
+    --text-dim:#c9c2ae;
+    --danger:#c8503a;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0a120a;
+    font-family:'Segoe UI', system-ui, -apple-system, sans-serif; color:var(--text);}
+  #canvasHolder{position:fixed;inset:0;}
+  canvas#gameCanvas{display:block;width:100%;height:100%;}
+
+  .panel{
+    background:var(--panel-bg);
+    border:1px solid var(--panel-border);
+    border-radius:14px;
+    backdrop-filter:blur(6px);
+    box-shadow:0 8px 24px rgba(0,0,0,0.45);
+  }
+  button{
+    font-family:inherit;cursor:pointer;border:none;outline:none;
+  }
+  .btn{
+    background:linear-gradient(180deg,#2c3a26,#1c2718);
+    color:var(--text);
+    border:1px solid rgba(224,161,44,0.4);
+    padding:8px 14px;border-radius:9px;font-size:13px;font-weight:600;
+    letter-spacing:0.2px;
+    transition:transform .12s ease, background .12s ease, border-color .12s ease;
+  }
+  .btn:hover{background:linear-gradient(180deg,#37492f,#22301c);border-color:var(--gold);}
+  .btn:active{transform:scale(0.96);}
+  .btn.gold{background:linear-gradient(180deg,var(--gold-soft),var(--gold));color:#241703;border:none;font-weight:700;}
+  .btn.gold:hover{filter:brightness(1.08);}
+  .btn.danger{border-color:rgba(200,80,58,0.6);}
+  .btn.small{padding:5px 10px;font-size:11.5px;border-radius:7px;}
+
+  /* ---------- QUEST PANEL (top-left) ---------- */
+  #questPanel{position:fixed;top:14px;left:14px;width:280px;z-index:40;overflow:hidden;
+    transition:width .25s ease;}
+  #questHeader{padding:10px 14px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;}
+  #questHeader .title{font-size:12.5px;font-weight:800;letter-spacing:1.5px;color:var(--gold-soft);}
+  #questHeader .chev{transition:transform .25s ease;color:var(--text-dim);font-size:12px;}
+  #questPanel.expanded #questHeader .chev{transform:rotate(180deg);}
+  #questStatsRow{padding:0 14px 8px;font-size:12px;color:var(--text-dim);display:flex;gap:10px;flex-wrap:wrap;}
+  #questBody{max-height:0;overflow:hidden;transition:max-height .3s ease, padding .3s ease;padding:0 14px;}
+  #questPanel.expanded #questBody{max-height:420px;padding:0 14px 14px;}
+  #questBody .qname{font-size:15px;font-weight:800;color:var(--text);margin:2px 0 2px;}
+  #questBody .qmeta{font-size:11px;color:var(--gold-soft);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;}
+  #questBody .qclue{font-size:12.5px;line-height:1.4;color:var(--text-dim);font-style:italic;margin-bottom:8px;}
+  #questSteps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;}
+  #questSteps li{font-size:12.5px;display:flex;gap:6px;align-items:flex-start;color:var(--text-dim);}
+  #questSteps li.done{color:#9ad18f;}
+  #questSteps li .mark{flex:0 0 auto;}
+  #questReward{margin-top:8px;font-size:12px;color:var(--gold-soft);border-top:1px dashed rgba(224,161,44,0.3);padding-top:6px;}
+  #questEmpty{font-size:12.5px;color:var(--text-dim);padding:2px 0 4px;}
+
+  /* ---------- TOP RIGHT BAR ---------- */
+  #topRightBar{position:fixed;top:14px;right:14px;z-index:40;display:flex;gap:8px;}
+
+  /* ---------- BOTTOM CENTER PROMPT ---------- */
+  #interactionPrompt{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(6px);
+    padding:9px 18px;border-radius:30px;font-size:14px;font-weight:700;letter-spacing:.4px;
+    z-index:35;opacity:0;pointer-events:none;transition:opacity .15s ease, transform .15s ease;}
+  #interactionPrompt.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  /* ---------- BOTTOM RIGHT: controls help + minimap ---------- */
+  #bottomRight{position:fixed;bottom:14px;right:14px;z-index:40;display:flex;flex-direction:column;align-items:flex-end;gap:8px;}
+  #minimapWrap{position:relative;}
+  #minimapCanvas{border-radius:12px;border:1px solid var(--panel-border);box-shadow:0 8px 24px rgba(0,0,0,0.45);background:#122014;}
+  #minimapWrap.big #minimapCanvas{width:340px;height:340px;}
+  #minimapWrap:not(.big) #minimapCanvas{width:168px;height:168px;}
+  #minimapLegend{position:absolute;top:6px;left:8px;font-size:9px;color:#cfe8c8;opacity:.8;letter-spacing:.5px;}
+  #helpRow{display:flex;gap:8px;}
+  #controlsHelpBox{position:fixed;bottom:170px;right:14px;width:230px;z-index:41;padding:12px 14px;font-size:12px;
+    line-height:1.65;color:var(--text-dim);display:none;}
+  #controlsHelpBox.show{display:block;}
+  #controlsHelpBox b{color:var(--text);}
+  #controlsHelpBox .row{display:flex;justify-content:space-between;}
+
+  /* ---------- NOTIFICATIONS (toasts) ---------- */
+  #notifStack{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:60;display:flex;flex-direction:column;gap:8px;align-items:center;}
+  .notif{padding:9px 18px;border-radius:10px;font-size:13px;font-weight:700;color:#fff;
+    background:linear-gradient(90deg,rgba(47,107,63,0.92),rgba(28,60,36,0.92));
+    border:1px solid rgba(224,161,44,0.5);opacity:0;transform:translateY(-14px);
+    transition:opacity .3s ease, transform .3s ease; box-shadow:0 6px 18px rgba(0,0,0,.4); white-space:nowrap;}
+  .notif.show{opacity:1;transform:translateY(0);}
+  .notif .sub{font-weight:500;color:var(--gold-soft);margin-left:6px;}
+
+  /* ---------- SHOP DISCOVERY MODAL ---------- */
+  #shopModal{position:fixed;top:80px;left:50%;transform:translateX(-50%) scale(0.95);z-index:55;
+    width:300px;padding:16px 18px;opacity:0;pointer-events:none;transition:opacity .2s ease, transform .2s ease;}
+  #shopModal.show{opacity:1;transform:translateX(-50%) scale(1);pointer-events:auto;}
+  #shopModal .tag{font-size:10.5px;letter-spacing:1.5px;color:var(--gold-soft);font-weight:800;}
+  #shopModal h3{margin:4px 0 2px;font-size:19px;}
+  #shopModal .offerLine{font-size:13px;color:#9ad18f;margin-bottom:2px;font-weight:700;}
+  #shopModal .statusLine{font-size:12px;color:var(--text-dim);margin-bottom:10px;}
+  #shopModal .desc{font-size:12.5px;color:var(--text-dim);margin-bottom:10px;display:none;line-height:1.45;}
+  #shopModal .row{display:flex;gap:8px;flex-wrap:wrap;}
+  #shopModal .closeX{position:absolute;top:8px;right:10px;background:none;color:var(--text-dim);font-size:16px;}
+
+  /* ---------- OFFERS PANEL ---------- */
+  #offersPanel{position:fixed;top:64px;right:14px;width:300px;max-height:70vh;overflow:auto;z-index:50;
+    padding:14px 16px;display:none;}
+  #offersPanel.show{display:block;}
+  #offersPanel h3{margin:0 0 10px;font-size:15px;letter-spacing:.5px;color:var(--gold-soft);}
+  .offerCard{background:rgba(255,255,255,0.04);border:1px solid rgba(224,161,44,0.25);border-radius:10px;
+    padding:10px 12px;margin-bottom:8px;}
+  .offerCard .shop{font-size:13px;font-weight:800;}
+  .offerCard .title{font-size:12.5px;color:#9ad18f;margin:2px 0;}
+  .offerCard .meta{font-size:10.5px;color:var(--text-dim);display:flex;justify-content:space-between;margin-top:4px;}
+  .offerCard .code{font-family:monospace;background:rgba(224,161,44,0.15);padding:1px 6px;border-radius:5px;color:var(--gold-soft);}
+  #offersEmpty{font-size:12.5px;color:var(--text-dim);}
+
+  /* ---------- SETTINGS PANEL ---------- */
+  #settingsPanel{position:fixed;top:64px;right:14px;width:280px;z-index:50;padding:16px 18px;display:none;}
+  #settingsPanel.show{display:block;}
+  #settingsPanel h3{margin:0 0 12px;font-size:15px;color:var(--gold-soft);}
+  #settingsPanel .grp{margin-bottom:12px;}
+  #settingsPanel .stats{font-size:12px;color:var(--text-dim);line-height:1.8;margin-bottom:12px;}
+
+  /* ---------- SHOP OWNER PANEL ---------- */
+  #ownerPanel{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:340px;z-index:70;
+    padding:20px;display:none;}
+  #ownerPanel.show{display:block;}
+  #ownerPanel h3{margin:0 0 4px;font-size:16px;color:var(--gold-soft);}
+  #ownerPanel .sub{font-size:11.5px;color:var(--text-dim);margin-bottom:14px;}
+  #ownerPanel label{display:block;font-size:11.5px;color:var(--text-dim);margin:10px 0 4px;letter-spacing:.3px;}
+  #ownerPanel select, #ownerPanel input, #ownerPanel textarea{
+    width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(224,161,44,0.3);border-radius:8px;
+    color:var(--text);padding:8px 10px;font-size:13px;font-family:inherit;}
+  #ownerPanel textarea{resize:vertical;min-height:50px;}
+  #ownerPanel .footRow{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;}
+
+  /* ---------- REWARD OVERLAY ---------- */
+  #rewardOverlay{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;
+    background:rgba(4,8,4,0.72);opacity:0;pointer-events:none;transition:opacity .4s ease;}
+  #rewardOverlay.show{opacity:1;pointer-events:auto;}
+  #rewardCard{text-align:center;transform:scale(0.85);transition:transform .4s cubic-bezier(.2,1.4,.4,1);}
+  #rewardOverlay.show #rewardCard{transform:scale(1);}
+  #rewardCard .found{font-size:13px;letter-spacing:4px;color:var(--gold-soft);font-weight:800;margin-bottom:10px;}
+  #rewardCard .shopname{font-size:26px;font-weight:800;margin-bottom:6px;}
+  #rewardCard .discount{font-size:34px;font-weight:900;color:#9ad18f;margin-bottom:14px;text-shadow:0 0 24px rgba(154,209,143,.5);}
+  #rewardCard .codebox{display:inline-block;background:rgba(224,161,44,0.14);border:1.5px dashed var(--gold);
+    padding:8px 22px;border-radius:10px;font-family:monospace;font-size:18px;letter-spacing:3px;color:var(--gold-soft);margin-bottom:16px;}
+  #rewardCard .unlocked{font-size:12px;letter-spacing:2px;color:#9ad18f;font-weight:700;opacity:0;transition:opacity .4s ease .3s;}
+  #rewardOverlay.show #rewardCard .unlocked{opacity:1;}
+
+  /* ---------- INTRO ---------- */
+  #introOverlay{position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+    padding-bottom:9vh; background:linear-gradient(180deg, rgba(6,10,6,0.15) 0%, rgba(4,8,4,0.55) 60%, rgba(2,5,2,0.85) 100%);
+    transition:opacity .8s ease;}
+  #introOverlay.fading{opacity:0;pointer-events:none;}
+  #introTitleWrap{text-align:center;margin-bottom:5vh;opacity:0;transform:translateY(14px);transition:opacity 1s ease, transform 1s ease;}
+  #introTitleWrap.show{opacity:1;transform:translateY(0);}
+  #introTitleWrap h1{font-size:44px;letter-spacing:6px;margin:0 0 10px;font-weight:800;
+    background:linear-gradient(180deg,#fff,#ffe1a0);-webkit-background-clip:text;background-clip:text;color:transparent;
+    text-shadow:0 4px 30px rgba(0,0,0,.4);}
+  #introTitleWrap p{font-size:14px;letter-spacing:1.5px;color:var(--text-dim);margin:0;}
+  #introButtons{display:flex;gap:12px;opacity:0;transition:opacity 1s ease .4s;}
+  #introButtons.show{opacity:1;}
+  #introButtons .btn{padding:12px 26px;font-size:14px;}
+  #introSkip{position:fixed;top:18px;right:18px;z-index:101;font-size:11.5px;color:var(--text-dim);
+    background:rgba(0,0,0,0.35);padding:7px 14px;border-radius:20px;}
+
+  #crosshair-hint{display:none;}
+  ::-webkit-scrollbar{width:6px;}
+  ::-webkit-scrollbar-thumb{background:rgba(224,161,44,0.4);border-radius:4px;}
+
+  @media (max-width:640px){
+    #questPanel{width:230px;}
+    #controlsHelpBox{width:190px;}
+    #introTitleWrap h1{font-size:30px;letter-spacing:3px;}
+  }
+</style>
+</head>
+<body>
+
+<div id="canvasHolder"><canvas id="gameCanvas"></canvas></div>
+
+<!-- QUEST PANEL -->
+<div id="questPanel" class="panel">
+  <div id="questHeader" onclick="UI.toggleQuestPanel()">
+    <span class="title">QUEST</span>
+    <span class="chev">▾</span>
+  </div>
+  <div id="questStatsRow"></div>
+  <div id="questBody">
+    <div id="questEmpty">No active quest. Approach a shop to discover a treasure hunt.</div>
+    <div id="questActive" style="display:none;">
+      <div class="qname" id="qName"></div>
+      <div class="qmeta" id="qMeta"></div>
+      <div class="qclue" id="qClue"></div>
+      <ul id="questSteps"></ul>
+      <div id="questReward"></div>
+    </div>
+  </div>
+</div>
+
+<!-- TOP RIGHT -->
+<div id="topRightBar">
+  <div class="btn" id="coinBadge" style="cursor:default;">🪙 <span id="coinCount">0</span></div>
+  <button class="btn" onclick="UI.toggleOffers()">🎁 Offers</button>
+  <button class="btn" onclick="UI.toggleMinimapSize()">🗺️ Map</button>
+  <button class="btn" onclick="UI.toggleSettings()">⚙️ Settings</button>
+</div>
+
+<!-- INTERACTION PROMPT -->
+<div id="interactionPrompt" class="panel"></div>
+
+<!-- BOTTOM RIGHT -->
+<div id="bottomRight">
+  <div id="controlsHelpBox" class="panel">
+    <div class="row"><span><b>W/↑ S/↓</b></span><span>Walk / Drive</span></div>
+    <div class="row"><span><b>Shift</b></span><span>Run</span></div>
+    <div class="row"><span><b>A / D</b></span><span>Strafe / Steer</span></div>
+    <div class="row"><span><b>←  →</b></span><span>Turn camera</span></div>
+    <div class="row"><span><b>Mouse</b></span><span>Orbit camera</span></div>
+    <div class="row"><span><b>E</b></span><span>Interact</span></div>
+    <div class="row"><span><b>F</b></span><span>Rent / exit vehicle 🪙</span></div>
+    <div class="row"><span><b>M</b></span><span>Map</span></div>
+    <div class="row"><span><b>Q</b></span><span>Quest</span></div>
+    <div class="row"><span><b>O</b></span><span>Offers</span></div>
+    <div class="row"><span><b>Esc</b></span><span>Settings</span></div>
+  </div>
+  <div id="helpRow">
+    <button class="btn small" onclick="Cam.reset()">Reset Cam</button>
+    <button class="btn small" onclick="UI.toggleHelp()">❔ Controls</button>
+  </div>
+  <div id="minimapWrap" class="panel">
+    <canvas id="minimapCanvas" width="340" height="340"></canvas>
+    <div id="minimapLegend">● you&nbsp; ★ treasure&nbsp; ▲ shop</div>
+  </div>
+</div>
+
+<!-- NOTIFICATIONS -->
+<div id="notifStack"></div>
+
+<!-- SHOP DISCOVERY MODAL -->
+<div id="shopModal" class="panel">
+  <button class="closeX" onclick="UI.closeShopModal()">✕</button>
+  <div class="tag">SHOP DISCOVERED</div>
+  <h3 id="sm_name"></h3>
+  <div class="offerLine" id="sm_offer"></div>
+  <div class="statusLine" id="sm_status"></div>
+  <div class="desc" id="sm_desc"></div>
+  <div class="row">
+    <button class="btn small" onclick="UI.shopViewOffer()">View Offer</button>
+    <button class="btn small gold" onclick="UI.shopFindTreasure()">Find Treasure</button>
+    <button class="btn small" onclick="UI.shopNavigate()">Navigate</button>
+  </div>
+</div>
+
+<!-- OFFERS PANEL -->
+<div id="offersPanel" class="panel">
+  <h3>MY OFFERS</h3>
+  <div id="offersList"><div id="offersEmpty">No offers unlocked yet — find treasures to collect them.</div></div>
+</div>
+
+<!-- SETTINGS PANEL -->
+<div id="settingsPanel" class="panel">
+  <h3>SETTINGS</h3>
+  <div class="stats" id="statsBlock"></div>
+  <div class="grp row" style="display:flex;gap:8px;flex-wrap:wrap;">
+    <button class="btn small gold" onclick="Save.save()">💾 Save Game</button>
+    <button class="btn small danger" onclick="Save.reset()">Reset Game</button>
+    <button class="btn small" onclick="UI.openOwnerPanel()">🏪 Shop Owner Mode</button>
+  </div>
+</div>
+
+<!-- SHOP OWNER PANEL -->
+<div id="ownerPanel" class="panel">
+  <h3>SHOP OWNER</h3>
+  <div class="sub">Publish a promotional treasure hunt for your shop.</div>
+  <label>Select Shop</label>
+  <select id="own_shop"></select>
+  <label>Offer Title</label>
+  <input id="own_title" placeholder="e.g. 20% OFF Samosa Combo" />
+  <label>Discount</label>
+  <input id="own_discount" placeholder="e.g. 20%" />
+  <label>Description</label>
+  <textarea id="own_desc" placeholder="Find the hidden treasure to unlock this offer."></textarea>
+  <label>Treasure Difficulty</label>
+  <select id="own_diff">
+    <option value="easy">Easy</option>
+    <option value="medium" selected>Medium</option>
+    <option value="hard">Hard</option>
+    <option value="legendary">Legendary</option>
+  </select>
+  <div class="footRow">
+    <button class="btn small" onclick="UI.closeOwnerPanel()">Cancel</button>
+    <button class="btn small gold" onclick="UI.publishOffer()">Publish Offer</button>
+  </div>
+</div>
+
+<!-- REWARD OVERLAY -->
+<div id="rewardOverlay">
+  <div id="rewardCard">
+    <div class="found">TREASURE FOUND</div>
+    <div class="shopname" id="rw_shop"></div>
+    <div class="discount" id="rw_discount"></div>
+    <div class="codebox" id="rw_code"></div>
+    <div class="unlocked">REWARD UNLOCKED</div>
+  </div>
+</div>
+
+<!-- INTRO -->
+<div id="introSkip" class="panel" onclick="Intro.finish()">Skip Intro ›</div>
+<div id="introOverlay">
+  <div id="introTitleWrap">
+    <h1>EXPLORE KERALA</h1>
+    <p>Discover hidden treasures. Find local offers. Explore the world.</p>
+  </div>
+  <div id="introButtons">
+    <button class="btn gold" onclick="Intro.finish()">Start Exploring</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="[https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2](https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2)"></script>
+<script>
+"use strict";
+/* =========================================================================
+   EXPLORE KERALA — a compact open-world treasure-hunt / food-offer game
+   Modules: WorldManager, NPCManager, VehicleManager, PlayerController,
+   CameraController, ShopManager, TreasureManager (Quest), OfferManager,
+   InteractionManager, SaveManager, UIManager, AudioManager
+   ========================================================================= */
+// Initialize Supabase Database Connection
+const SUPABASE_URL = "https://mkhjctnplddegomialwk.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_JznPm-DU6lsiO2VRfRwPtA_TJf_8JWW";
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const TAU = Math.PI*2;
+function rand(a,b){return a+Math.random()*(b-a);}
+function choice(arr){return arr[Math.floor(Math.random()*arr.length)];}
+function dist2D(x1,z1,x2,z2){const dx=x1-x2,dz=z1-z2;return Math.sqrt(dx*dx+dz*dz);}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function lerp(a,b,t){return a+(b-a)*t;}
+function smooth(t){return t*t*(3-2*t);}
+
+/* ---------------- terrain elevation ---------------- */
+function elevationAt(x,z){
+  let e = Math.sin(x*0.014)*1.8 + Math.cos(z*0.016)*1.8;
+  const hdx=x-120, hdz=z+100, hd=Math.sqrt(hdx*hdx+hdz*hdz);
+  e += Math.max(0, 15.5-hd*0.27);
+  const pdx=x+140, pdz=z-80, pd=Math.sqrt(pdx*pdx+pdz*pdz);
+  if(pd<75){ e = lerp(e, -0.7, 1-pd/75); }
+  if(z>130){ const t=clamp((z-130)/55,0,1); e = lerp(e, 0.15, t); }
+  return e;
+}
+
+/* ---------------- collision blockers ---------------- */
+const blockers = [];
+function addCircleBlocker(x,z,r){ blockers.push({type:'circle',x,z,r}); }
+function addBoxBlocker(x,z,hw,hd){ blockers.push({type:'box',x,z,hw,hd}); }
+function resolveCollision(x,z,entR){
+  let nx=x, nz=z;
+  for(let i=0;i<blockers.length;i++){
+    const b=blockers[i];
+    if(b.type==='circle'){
+      const dx=nx-b.x, dz=nz-b.z; const d=Math.sqrt(dx*dx+dz*dz); const minD=b.r+entR;
+      if(d<minD){
+        if(d<0.0001){ nx=b.x+minD; nz=b.z; }
+        else { const s=minD/d; nx=b.x+dx*s; nz=b.z+dz*s; }
+      }
+    } else if(b.type==='box'){
+      const halfW=b.hw+entR, halfD=b.hd+entR;
+      const dx=nx-b.x, dz=nz-b.z;
+      if(Math.abs(dx)<halfW && Math.abs(dz)<halfD){
+        const penX=halfW-Math.abs(dx), penZ=halfD-Math.abs(dz);
+        if(penX<penZ){ nx=b.x+(dx<0?-halfW:halfW); }
+        else { nz=b.z+(dz<0?-halfD:halfD); }
+      }
+    } else if(b.type==='zmax'){
+      if(nz > b.z-entR) nz = b.z-entR;
+    }
+  }
+  const W=232;
+  nx=clamp(nx,-W,W); nz=clamp(nz,-W,W);
+  return {x:nx,z:nz};
+}
+/* -------- road-relative helpers (keep buildings off roads, keep vehicles on roads) -------- */
+function closestPointOnSeg(px,pz,x1,z1,x2,z2){
+  const dx=x2-x1, dz=z2-z1; const len2=dx*dx+dz*dz;
+  if(len2<0.0001) return {cx:x1,cz:z1};
+  let t=((px-x1)*dx+(pz-z1)*dz)/len2; t=clamp(t,0,1);
+  return {cx:x1+t*dx, cz:z1+t*dz};
+}
+function keepOffRoad(x,z,clearance){
+  for(let iter=0; iter<6; iter++){
+    let minD=Infinity, closest=null;
+    for(const r of roadSegments){
+      const d=pointSegDist(x,z,r.x1,r.z1,r.x2,r.z2);
+      if(d<minD){ minD=d; closest=r; }
+    }
+    if(!closest || minD>=clearance) break;
+    const cp=closestPointOnSeg(x,z,closest.x1,closest.z1,closest.x2,closest.z2);
+    let nx=x-cp.cx, nz=z-cp.cz;
+    const len=Math.sqrt(nx*nx+nz*nz)||1;
+    nx/=len; nz/=len;
+    x=cp.cx+nx*clearance; z=cp.cz+nz*clearance;
+  }
+  return {x,z};
+}
+function isOnRoad(x,z,entR){
+  for(const r of roadSegments){
+    const d=pointSegDist(x,z,r.x1,r.z1,r.x2,r.z2);
+    if(d <= r.width/2+entR+0.9) return true;
+  }
+  return false;
+}
+
+/* ---------------- canvas label sprites ---------------- */
+function roundRectPath(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function makeLabelSprite(lines, opts){
+  opts = opts||{};
+  const fontSize = opts.fontSize||30;
+  const canvas=document.createElement('canvas');
+  const ctx=canvas.getContext('2d');
+  ctx.font=`bold ${fontSize}px 'Segoe UI', sans-serif`;
+  let maxW=10;
+  for(const l of lines) maxW=Math.max(maxW, ctx.measureText(l).width);
+  canvas.width=Math.ceil(maxW+44);
+  canvas.height=Math.ceil(fontSize*lines.length*1.15+26);
+  ctx.font=`bold ${fontSize}px 'Segoe UI', sans-serif`;
+  ctx.fillStyle=opts.bg||'rgba(12,17,12,0.85)';
+  roundRectPath(ctx,0,0,canvas.width,canvas.height,16); ctx.fill();
+  ctx.strokeStyle=opts.border||'#e0a12c'; ctx.lineWidth=3;
+  roundRectPath(ctx,2,2,canvas.width-4,canvas.height-4,14); ctx.stroke();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  lines.forEach((l,i)=>{
+    ctx.fillStyle = i===0 ? (opts.color||'#ffffff') : (opts.subColor||'#ffd27a');
+    ctx.font = i===0 ? `bold ${fontSize}px 'Segoe UI', sans-serif` : `bold ${fontSize*0.72}px 'Segoe UI', sans-serif`;
+    ctx.fillText(l, canvas.width/2, 18+i*fontSize*1.05+fontSize*0.42);
+  });
+  const tex=new THREE.CanvasTexture(canvas);
+  tex.minFilter=THREE.LinearFilter;
+  const mat=new THREE.SpriteMaterial({map:tex, transparent:true, depthTest:true});
+  const sprite=new THREE.Sprite(mat);
+  const aspect=canvas.width/canvas.height;
+  const h=opts.height||1.0;
+  sprite.scale.set(h*aspect,h,1);
+  return sprite;
+}
+
+/* ================= SCENE / RENDERER ================= */
+let renderer, scene, camera, clock;
+let sunLight, hemiLight;
+const roadSegments = [];
+const waterMats = [];
+
+function initRenderer(){
+  const canvas=document.getElementById('gameCanvas');
+  renderer=new THREE.WebGLRenderer({canvas, antialias:true, powerPreference:'high-performance'});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.8));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled=true;
+  renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  renderer.outputEncoding = THREE.sRGBEncoding !== undefined ? THREE.sRGBEncoding : renderer.outputEncoding;
+
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0xbfe3f0);
+  scene.fog=new THREE.Fog(0xcfe8ee, 90, 340);
+
+  camera=new THREE.PerspectiveCamera(58, window.innerWidth/window.innerHeight, 0.1, 900);
+  camera.position.set(0,20,20);
+
+  hemiLight=new THREE.HemisphereLight(0xfff3d6, 0x2a3a20, 0.72);
+  scene.add(hemiLight);
+
+  sunLight=new THREE.DirectionalLight(0xfff0c8, 1.15);
+  sunLight.position.set(120,160,60);
+  sunLight.castShadow=true;
+  sunLight.shadow.mapSize.set(2048,2048);
+  sunLight.shadow.camera.left=-240; sunLight.shadow.camera.right=240;
+  sunLight.shadow.camera.top=240; sunLight.shadow.camera.bottom=-240;
+  sunLight.shadow.camera.near=10; sunLight.shadow.camera.far=500;
+  sunLight.shadow.bias=-0.0015;
+  scene.add(sunLight);
+  scene.add(sunLight.target);
+
+  window.addEventListener('resize', onResize);
+  clock=new THREE.Clock();
+}
+function onResize(){
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+/* ================= TERRAIN ================= */
+function buildTerrain(){
+  const size=470, seg=130;
+  const geo=new THREE.PlaneGeometry(size,size,seg,seg);
+  geo.rotateX(-Math.PI/2);
+  const pos=geo.attributes.position;
+  const colors=[];
+  const c1=new THREE.Color(), tmp=new THREE.Color();
+  for(let i=0;i<pos.count;i++){
+    const x=pos.getX(i), z=pos.getZ(i);
+    const y=elevationAt(x,z);
+    pos.setY(i,y);
+    c1.set(0x4c8c3d);
+    if(y>8) c1.set(0x7a6a48);
+    else if(y>4) c1.set(0x5f9a44);
+    const pdx=x+140,pdz=z-80,pd=Math.sqrt(pdx*pdx+pdz*pdz);
+    if(pd<75) c1.lerp(tmp.set(0x9fcf4a), 0.7);
+    if(z>130){ const t=clamp((z-130)/50,0,1); c1.lerp(tmp.set(0xdccb92), t); }
+    colors.push(c1.r,c1.g,c1.b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors,3));
+  geo.computeVertexNormals();
+  const mat=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.95, metalness:0.02});
+  const mesh=new THREE.Mesh(geo,mat);
+  mesh.receiveShadow=true;
+  scene.add(mesh);
+  return mesh;
+}
+
+/* ================= WATER ================= */
+function buildWater(){
+  const lakeGeo=new THREE.CircleGeometry(55,44);
+  lakeGeo.rotateX(-Math.PI/2);
+  const lakeMat=new THREE.MeshStandardMaterial({color:0x2f77ab, transparent:true, opacity:0.82, roughness:0.2, metalness:0.25});
+  const lake=new THREE.Mesh(lakeGeo, lakeMat);
+  lake.position.set(60,0.35,100);
+  scene.add(lake);
+  addCircleBlocker(60,100,54);
+  waterMats.push(lakeMat);
+
+  const seaGeo=new THREE.PlaneGeometry(520,150);
+  seaGeo.rotateX(-Math.PI/2);
+  const seaMat=lakeMat.clone();
+  const sea=new THREE.Mesh(seaGeo, seaMat);
+  sea.position.set(0,0.12,215);
+  scene.add(sea);
+  blockers.push({type:'zmax', z:148});
+  waterMats.push(seaMat);
+
+  // small stream near paddy fields
+  const streamGeo=new THREE.PlaneGeometry(10,120);
+  streamGeo.rotateX(-Math.PI/2);
+  const stream=new THREE.Mesh(streamGeo, lakeMat.clone());
+  stream.position.set(-90,0.3,70);
+  stream.rotation.z=0.25;
+  scene.add(stream);
+  addCircleBlocker(-90,70,10);
+  waterMats.push(stream.material);
+}
+
+/* ================= ROADS ================= */
+function addRoadSegmentMesh(p1,p2,width,color){
+  const dx=p2.x-p1.x, dz=p2.z-p1.z;
+  const len=Math.sqrt(dx*dx+dz*dz);
+  if(len<0.05) return;
+  const midx=(p1.x+p2.x)/2, midz=(p1.z+p2.z)/2;
+  const midy=Math.max(elevationAt(p1.x,p1.z), elevationAt(p2.x,p2.z))+0.07;
+  const geo=new THREE.PlaneGeometry(len+0.4, width);
+  geo.rotateX(-Math.PI/2);
+  const mat=new THREE.MeshStandardMaterial({color: color||0x3a3a3e, roughness:1});
+  const mesh=new THREE.Mesh(geo,mat);
+  mesh.position.set(midx,midy,midz);
+  mesh.rotation.y=-Math.atan2(dz,dx);
+  mesh.receiveShadow=true;
+  scene.add(mesh);
+  roadSegments.push({x1:p1.x,z1:p1.z,x2:p2.x,z2:p2.z,width});
+}
+function curvePoints(a,b,bend,steps){
+  steps=steps||6;
+  const midx=(a.x+b.x)/2, midz=(a.z+b.z)/2;
+  const dx=b.x-a.x, dz=b.z-a.z; const len=Math.sqrt(dx*dx+dz*dz)||1;
+  const px=-dz/len, pz=dx/len;
+  const ctrl={x:midx+px*bend, z:midz+pz*bend};
+  const pts=[];
+  for(let i=0;i<=steps;i++){
+    const t=i/steps;
+    const x=(1-t)*(1-t)*a.x+2*(1-t)*t*ctrl.x+t*t*b.x;
+    const z=(1-t)*(1-t)*a.z+2*(1-t)*t*ctrl.z+t*t*b.z;
+    pts.push({x,z});
+  }
+  return pts;
+}
+function buildRoadPath(points,width,color){
+  for(let i=0;i<points.length-1;i++) addRoadSegmentMesh(points[i],points[i+1],width,color);
+  return points;
+}
+const ROAD_POINTS={};
+function buildRoadNetwork(){
+  const hubPts=[];
+  const hubR=26;
+  for(let i=0;i<8;i++){
+    const a=(i/8)*TAU;
+    hubPts.push({x:Math.cos(a)*hubR, z:Math.sin(a)*hubR});
+  }
+  hubPts.push(hubPts[0]);
+  buildRoadPath(hubPts, 7, 0x3d3d42);
+  ROAD_POINTS.hub=hubPts;
+
+  const zones = {
+    village:{x:-120,z:-60}, hill:{x:120,z:-100}, paddy:{x:-140,z:80},
+    backwater:{x:60,z:100}, coastal:{x:0,z:150}, temple:{x:150,z:20}
+  };
+  const spokes=[
+    ['village', {x:-26,z:0}, zones.village, -22],
+    ['hill', {x:18,z:-19}, zones.hill, 26],
+    ['paddy', {x:-18,z:19}, zones.paddy, -20],
+    ['backwater', {x:19,z:18}, zones.backwater, 18],
+    ['coastal', {x:0,z:26}, zones.coastal, 12],
+    ['temple', {x:24,z:11}, zones.temple, -16],
+  ];
+  spokes.forEach(s=>{
+    const pts=curvePoints(s[1], s[2], s[3], 7);
+    buildRoadPath(pts, 5.4, 0x37373c);
+    ROAD_POINTS[s[0]]=pts;
+  });
+  // small loop inside village & backwater for flavor
+  ROAD_POINTS.villageLoop=buildRoadPath(curvePoints({x:-150,z:-70},{x:-95,z:-40},18,5), 4.2, 0x3a3a3e);
+  ROAD_POINTS.backwaterLoop=buildRoadPath(curvePoints({x:40,z:120},{x:75,z:70},-16,5), 4.2, 0x3a3a3e);
+  // extra loop near Kochi waterfront (west of hub) and Kovalam coast spur
+  ROAD_POINTS.kochiLoop=buildRoadPath(curvePoints({x:-19,z:-18},{x:-55,z:-8},-14,5), 4.6, 0x3a3a3e);
+  ROAD_POINTS.kovalamSpur=buildRoadPath(curvePoints({x:0,z:34},{x:-22,z:150},-10,6), 4.8, 0x3a3a3e);
+}
+
+/* ================= BUILDINGS & PROPS ================= */
+function createBox(w,h,d,color,rough){
+  const geo=new THREE.BoxGeometry(w,h,d);
+  const mat=new THREE.MeshStandardMaterial({color, roughness: rough===undefined?0.85:rough});
+  const m=new THREE.Mesh(geo,mat);
+  m.castShadow=true; m.receiveShadow=true;
+  return m;
+}
+function placeAt(obj,x,z,yOff){ const y=elevationAt(x,z)+(yOff||0); obj.position.set(x,y,z); }
+
+function createShopBuilding(shop){
+  const g=new THREE.Group();
+  const w=rand(4.4,5.6), d=rand(4.2,5.4), h=rand(2.7,3.3);
+  const clear=keepOffRoad(shop.position.x, shop.position.z, Math.max(w,d)/2+3.2);
+  shop.position.x=clear.x; shop.position.z=clear.z;
+  const body=createBox(w,h,d, shop.color);
+  body.position.y=h/2; g.add(body);
+  const roof=createBox(w+0.7,0.35,d+0.7, 0x6e3a2a);
+  roof.position.y=h+0.22; g.add(roof);
+  const doorMat=new THREE.MeshStandardMaterial({color:0x2a1c12});
+  const door=new THREE.Mesh(new THREE.BoxGeometry(0.9,1.5,0.08), doorMat);
+  door.position.set(0,0.78,d/2+0.02); g.add(door);
+  const sign=makeLabelSprite([shop.name, shop.offer.discountLabel], {height:1.05, border:'#e0a12c', subColor:'#9ad18f'});
+  sign.position.set(0,h+1.35,0); g.add(sign);
+  placeAt(g, shop.position.x, shop.position.z, 0);
+  scene.add(g);
+  addBoxBlocker(shop.position.x, shop.position.z, w/2+0.15, d/2+0.15);
+  shop.mesh=g; shop.sign=sign; shop.baseH=h;
+  return g;
+}
+function createHouse(x,z){
+  const w=rand(3,4.2), d=rand(3,4.2), h=rand(2,2.6);
+  const clear=keepOffRoad(x,z, Math.max(w,d)/2+2.8);
+  x=clear.x; z=clear.z;
+  for(const b of blockers){ if(b.type==='box' && Math.abs(x-b.x)<b.hw+2.5 && Math.abs(z-b.z)<b.hd+2.5) return null; }
+  const g=new THREE.Group();
+  const body=createBox(w,h,d, choice([0xd8c9a3,0xdad0c0,0xc9b98f]));
+  body.position.y=h/2; g.add(body);
+  const roof=new THREE.Mesh(new THREE.ConeGeometry(Math.max(w,d)*0.8,1.1,4), new THREE.MeshStandardMaterial({color:0x8a4331}));
+  roof.rotation.y=Math.PI/4; roof.position.y=h+0.55; g.add(roof);
+  placeAt(g,x,z,0);
+  scene.add(g);
+  addBoxBlocker(x,z,w/2+0.15,d/2+0.15);
+  return g;
+}
+function createTemple(x,z){
+  const clear=keepOffRoad(x,z,7.5); x=clear.x; z=clear.z;
+  const g=new THREE.Group();
+  const base=createBox(7,1.4,7,0xd8b25a); base.position.y=0.7; g.add(base);
+  const mid=createBox(5,1.6,5,0xc79a3d); mid.position.y=2.2; g.add(mid);
+  const top=createBox(3,1.4,3,0xb5822c); top.position.y=3.7; g.add(top);
+  const spire=new THREE.Mesh(new THREE.ConeGeometry(1.8,2.4,4), new THREE.MeshStandardMaterial({color:0x8f5a1c}));
+  spire.position.y=5.6; spire.rotation.y=Math.PI/4; g.add(spire);
+  const sign=makeLabelSprite(['Sree Heritage Temple'],{height:0.7,border:'#e0a12c'});
+  sign.position.set(0,7,0); g.add(sign);
+  placeAt(g,x,z,0); scene.add(g);
+  addBoxBlocker(x,z,3.7,3.7);
+  return g;
+}
+function createChurch(x,z){
+  const clear=keepOffRoad(x,z,6.5); x=clear.x; z=clear.z;
+  const g=new THREE.Group();
+  const body=createBox(4.4,3.2,7,0xf2ece0); body.position.y=1.6; g.add(body);
+  const roof=createBox(4.8,0.3,7.3,0x6b4a36); roof.position.y=3.35; g.add(roof);
+  const spire=createBox(1,3,1,0xf2ece0); spire.position.set(0,4.8,-3.2); g.add(spire);
+  const cross=createBox(0.9,0.16,0.16,0x4a3524); cross.position.set(0,6.1,-3.2); g.add(cross);
+  const cross2=createBox(0.16,0.5,0.16,0x4a3524); cross2.position.set(0,6.35,-3.2); g.add(cross2);
+  placeAt(g,x,z,0); scene.add(g);
+  addBoxBlocker(x,z,2.4,3.7);
+  return g;
+}
+function createMosque(x,z){
+  const clear=keepOffRoad(x,z,6.6); x=clear.x; z=clear.z;
+  const g=new THREE.Group();
+  const body=createBox(5.5,3,5.5,0xeceadd); body.position.y=1.5; g.add(body);
+  const dome=new THREE.Mesh(new THREE.SphereGeometry(2,14,10,0,TAU,0,Math.PI/2), new THREE.MeshStandardMaterial({color:0x2f8f5d}));
+  dome.position.y=3; g.add(dome);
+  const minaret=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.4,5,10), new THREE.MeshStandardMaterial({color:0xeceadd}));
+  minaret.position.set(3.4,2.5,3.4); g.add(minaret);
+  const minCap=new THREE.Mesh(new THREE.ConeGeometry(0.5,0.9,10), new THREE.MeshStandardMaterial({color:0x2f8f5d}));
+  minCap.position.set(3.4,5.4,3.4); g.add(minCap);
+  placeAt(g,x,z,0); scene.add(g);
+  addBoxBlocker(x,z,3.0,3.0);
+  return g;
+}
+/* -------- iconic Kerala district landmarks -------- */
+function createChineseFishingNet(x,z,rotY){
+  const clear=keepOffRoad(x,z,6); x=clear.x; z=clear.z;
+  const g=new THREE.Group();
+  const woodMat=new THREE.MeshStandardMaterial({color:0x6b4a30});
+  for(const a of [-1,1]){
+    const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,7,6), woodMat);
+    leg.position.set(a*1.6,3.4,0); leg.rotation.z=a*0.35; leg.castShadow=true; g.add(leg);
+  }
+  const boom=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.13,9,6), woodMat);
+  boom.position.set(0,6.2,2.4); boom.rotation.x=Math.PI/2-0.5; g.add(boom);
+  const netMat=new THREE.MeshStandardMaterial({color:0x2c2c2c, wireframe:true});
+  const net=new THREE.Mesh(new THREE.PlaneGeometry(4.5,4.5,6,6), netMat);
+  net.position.set(0,3.4,5.4); net.rotation.x=-Math.PI/2+0.2; g.add(net);
+  for(let i=0;i<4;i++){
+    const rope=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,4.5,4), woodMat);
+    rope.position.set((i-1.5)*1.1, 4.8, 3.2); rope.rotation.x=0.25; g.add(rope);
+  }
+  const stone=new THREE.Mesh(new THREE.SphereGeometry(0.35,8,8), new THREE.MeshStandardMaterial({color:0x555555}));
+  stone.position.set(0,1.6,-3.2); g.add(stone);
+  g.rotation.y=rotY||0;
+  placeAt(g,x,z,0); scene.add(g);
+  addBoxBlocker(x,z,3.2,3.2);
+  const sign=makeLabelSprite(['Chinese Fishing Nets','Kochi Waterfront'],{height:0.8,border:'#e0a12c'});
+  sign.position.set(0,7.6,0); g.add(sign);
+  return g;
+}
+function createLighthouse(x,z){
+  const clear=keepOffRoad(x,z,5); x=clear.x; z=clear.z;
+  const g=new THREE.Group();
+  const base=new THREE.Mesh(new THREE.CylinderGeometry(1.6,2,2,12), new THREE.MeshStandardMaterial({color:0xd8d0be}));
+  base.position.y=1; g.add(base);
+  const tower=new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.35,9,12), new THREE.MeshStandardMaterial({color:0xffffff}));
+  tower.position.y=6.5; g.add(tower);
+  for(let i=0;i<3;i++){
+    const stripe=new THREE.Mesh(new THREE.CylinderGeometry(1.13,1.2,1.1,12), new THREE.MeshStandardMaterial({color:0xc23b2f}));
+    stripe.position.y=3.6+i*2.6; g.add(stripe);
+  }
+  const cap=new THREE.Mesh(new THREE.ConeGeometry(1.3,1.6,12), new THREE.MeshStandardMaterial({color:0xc23b2f}));
+  cap.position.y=11.8; g.add(cap);
+  const lightBulb=new THREE.Mesh(new THREE.SphereGeometry(0.5,10,10), new THREE.MeshStandardMaterial({color:0xfff3b0, emissive:0xffdf7a, emissiveIntensity:1}));
+  lightBulb.position.y=11.0; g.add(lightBulb);
+  const pl=new THREE.PointLight(0xffe6a0,1.2,20); pl.position.y=11.0; g.add(pl);
+  const sign=makeLabelSprite(['Kovalam Lighthouse'],{height:0.7,border:'#e0a12c'});
+  sign.position.set(0,13,0); g.add(sign);
+  placeAt(g,x,z,0); scene.add(g);
+  addCircleBlocker(x,z,2.3);
+  return g;
+}
+function createHouseboat(x,z,rotY){
+  const g=new THREE.Group();
+  const hull=createBox(2.2,0.9,7.5,0x5a4020); hull.position.y=0.45; g.add(hull);
+  const cabinMat=new THREE.MeshStandardMaterial({color:0xd8c08a});
+  for(let i=0;i<5;i++){
+    const arch=new THREE.Mesh(new THREE.CylinderGeometry(1.15,1.15,1.3,10,1,false,0,Math.PI), cabinMat);
+    arch.rotation.z=Math.PI/2; arch.rotation.y=Math.PI/2;
+    arch.position.set(0,1.5,-3+i*1.5); g.add(arch);
+  }
+  g.rotation.y=rotY||0;
+  g.position.set(x,0.45,z);
+  scene.add(g);
+  return g;
+}
+function createTeaTerraces(cx,cz){
+  const group=new THREE.Group();
+  const mat=new THREE.MeshStandardMaterial({color:0x3d7a3a, roughness:1});
+  for(let i=0;i<10;i++){
+    const w=rand(10,20), d=rand(2.6,3.4);
+    const strip=new THREE.Mesh(new THREE.BoxGeometry(w,0.5,d), mat);
+    const ang=rand(0,TAU), rdist=rand(8,34);
+    const x=cx+Math.cos(ang)*rdist, z=cz+Math.sin(ang)*rdist;
+    strip.position.set(x, elevationAt(x,z)+0.2, z);
+    strip.rotation.y=rand(0,TAU);
+    strip.receiveShadow=true;
+    group.add(strip);
+  }
+  scene.add(group);
+}
+function createElephantStatue(x,z){
+  const clear=keepOffRoad(x,z,4); x=clear.x; z=clear.z;
+  const g=new THREE.Group();
+  const mat=new THREE.MeshStandardMaterial({color:0x6b6b6b});
+  const body=new THREE.Mesh(new THREE.SphereGeometry(1.1,10,8), mat); body.scale.set(1.3,1,1); body.position.y=1.3; g.add(body);
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.65,10,8), mat); head.position.set(0,1.5,1.15); g.add(head);
+  const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.22,1.1,8), mat); trunk.position.set(0,0.9,1.7); trunk.rotation.x=0.4; g.add(trunk);
+  for(const s of [-0.5,0.5]){
+    for(const dz of [-0.6,0.6]){
+      const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.24,1.3,8), mat);
+      leg.position.set(s,0.65,dz); g.add(leg);
+    }
+  }
+  const decor=new THREE.Mesh(new THREE.BoxGeometry(1.4,0.15,0.1), new THREE.MeshStandardMaterial({color:0xd8a12c}));
+  decor.position.set(0,2.0,0); g.add(decor);
+  placeAt(g,x,z,0); scene.add(g);
+  addCircleBlocker(x,z,2.2);
+  const sign=makeLabelSprite(['Thrissur Pooram Statue'],{height:0.55,border:'#e0a12c'});
+  sign.position.set(0,3.2,0); g.add(sign);
+  return g;
+}
+function createBridge(x,z,rotY){
+  const g=new THREE.Group();
+  const deck=createBox(4.2,0.3,9,0x8a6a48); deck.position.y=0.9; g.add(deck);
+  for(const s of [-1,1]){
+    const rail=createBox(0.15,0.7,9,0x6b4c30); rail.position.set(s*2,1.4,0); g.add(rail);
+  }
+  g.rotation.y=rotY||0;
+  placeAt(g,x,z,0.15); scene.add(g);
+  return g;
+}
+function createBusStop(x,z){
+  const clear=keepOffRoad(x,z,3.6); x=clear.x; z=clear.z;
+  const g=new THREE.Group();
+  const roof=createBox(3.6,0.15,1.4,0x555b52); roof.position.y=2.2; g.add(roof);
+  for(const dx of [-1.5,1.5]){
+    const pole=createBox(0.12,2.2,0.12,0x3a3f3a); pole.position.set(dx,1.1,0.6); g.add(pole);
+  }
+  const bench=createBox(3.2,0.25,0.5,0x6b4c30); bench.position.set(0,0.5,0.3); g.add(bench);
+  const sign=makeLabelSprite(['Bus Stop'],{height:0.5, bg:'rgba(20,20,10,0.8)'});
+  sign.position.set(0,2.7,0); g.add(sign);
+  placeAt(g,x,z,0); scene.add(g);
+  addBoxBlocker(x,z,1.9,0.9);
+  return {x,z};
+}
+
+/* -------- vegetation (instanced for performance) -------- */
+function isBlockedForPlanting(x,z,margin){
+  for(const b of blockers){
+    if(b.type==='circle' && dist2D(x,z,b.x,b.z)<b.r+margin) return true;
+    if(b.type==='box' && Math.abs(x-b.x)<b.hw+margin && Math.abs(z-b.z)<b.hd+margin) return true;
+  }
+  return false;
+}
+function scatterVegetation(){
+  const trunkGeo=new THREE.CylinderGeometry(0.11,0.17,3.6,6);
+  const trunkMat=new THREE.MeshStandardMaterial({color:0x8a6b46, roughness:1});
+  const leafGeo=new THREE.SphereGeometry(1,8,6);
+  const leafMat=new THREE.MeshStandardMaterial({color:0x2e7d32, roughness:0.9});
+  const COUNT=170;
+  const trunkMesh=new THREE.InstancedMesh(trunkGeo, trunkMat, COUNT);
+  const leafMesh=new THREE.InstancedMesh(leafGeo, leafMat, COUNT);
+  trunkMesh.castShadow=true; leafMesh.castShadow=true;
+  const dummy=new THREE.Object3D();
+  let placed=0, attempts=0;
+  while(placed<COUNT && attempts<COUNT*12){
+    attempts++;
+    const x=rand(-225,225), z=rand(-225,225);
+    if(z>145) continue;
+    let blocked=isBlockedForPlanting(x,z,1.4);
+    if(blocked) continue;
+    let nearRoad=false;
+    for(const r of roadSegments){
+      const d=pointSegDist(x,z,r.x1,r.z1,r.x2,r.z2);
+      if(d<r.width/2+3.2){nearRoad=true;break;}
+    }
+    if(nearRoad) continue;
+    const y=elevationAt(x,z);
+    const s=rand(0.75,1.25);
+    dummy.position.set(x,y+1.8*s,z); dummy.rotation.set(0,rand(0,TAU),0); dummy.scale.set(1,s,1);
+    dummy.updateMatrix(); trunkMesh.setMatrixAt(placed, dummy.matrix);
+    dummy.position.set(x,y+3.9*s,z); dummy.scale.set(1.5*s,0.55*s,1.5*s);
+    dummy.updateMatrix(); leafMesh.setMatrixAt(placed, dummy.matrix);
+    addCircleBlocker(x,z,0.42*s);
+    placed++;
+  }
+  trunkMesh.count=placed; leafMesh.count=placed;
+  trunkMesh.instanceMatrix.needsUpdate=true; leafMesh.instanceMatrix.needsUpdate=true;
+  scene.add(trunkMesh, leafMesh);
+
+  // banana clumps
+  const bGeo=new THREE.BoxGeometry(0.14,1.5,0.75);
+  const bMat=new THREE.MeshStandardMaterial({color:0x5aa32e, roughness:0.9});
+  const BCOUNT=110;
+  const bMesh=new THREE.InstancedMesh(bGeo,bMat,BCOUNT);
+  let bp=0, ba=0;
+  while(bp<BCOUNT && ba<BCOUNT*10){
+    ba++;
+    const cx=rand(-190,-80), cz=rand(30,140);
+    const pd=Math.sqrt((cx+140)*(cx+140)+(cz-80)*(cz-80));
+    if(pd>85) continue;
+    if(isBlockedForPlanting(cx,cz,1.2)) continue;
+    const y=elevationAt(cx,cz);
+    dummy.position.set(cx, y+0.75, cz);
+    dummy.rotation.set(0, rand(0,TAU), rand(-0.15,0.15));
+    dummy.scale.set(rand(0.8,1.2),rand(0.8,1.2),rand(0.8,1.2));
+    dummy.updateMatrix();
+    bMesh.setMatrixAt(bp, dummy.matrix);
+    bp++;
+  }
+  bMesh.count=bp; bMesh.instanceMatrix.needsUpdate=true;
+  scene.add(bMesh);
+}
+function pointSegDist(px,pz,x1,z1,x2,z2){
+  const dx=x2-x1, dz=z2-z1;
+  const len2=dx*dx+dz*dz;
+  if(len2<0.0001) return dist2D(px,pz,x1,z1);
+  let t=((px-x1)*dx+(pz-z1)*dz)/len2;
+  t=clamp(t,0,1);
+  const cx=x1+t*dx, cz=z1+t*dz;
+  return dist2D(px,pz,cx,cz);
+}
+
+/* ================= HUMANOID BUILDER ================= */
+function createHumanoid(colors){
+  const g=new THREE.Group();
+  const skinMat=new THREE.MeshStandardMaterial({color:colors.skin});
+  const shirtMat=new THREE.MeshStandardMaterial({color:colors.shirt});
+  const pantsMat=new THREE.MeshStandardMaterial({color:colors.pants});
+  const hairMat=new THREE.MeshStandardMaterial({color:colors.hair});
+
+  const torso=new THREE.Mesh(new THREE.BoxGeometry(0.46,0.62,0.26), shirtMat);
+  torso.position.y=1.14; g.add(torso);
+
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.185,12,10), skinMat);
+  head.position.y=1.62; g.add(head);
+
+  const hair=new THREE.Mesh(new THREE.SphereGeometry(0.195,12,10,0,TAU,0,Math.PI*0.55), hairMat);
+  hair.position.y=1.70; g.add(hair);
+
+  function limb(mat, len, rad){
+    const grp=new THREE.Group();
+    const mesh=new THREE.Mesh(new THREE.CylinderGeometry(rad,rad*0.9,len,6), mat);
+    mesh.position.y=-len/2;
+    grp.add(mesh);
+    return grp;
+  }
+  const leftArm=limb(skinMat,0.52,0.062); leftArm.position.set(-0.30,1.40,0); g.add(leftArm);
+  const rightArm=limb(skinMat,0.52,0.062); rightArm.position.set(0.30,1.40,0); g.add(rightArm);
+  const leftLeg=limb(pantsMat,0.66,0.08); leftLeg.position.set(-0.12,0.84,0); g.add(leftLeg);
+  const rightLeg=limb(pantsMat,0.66,0.08); rightLeg.position.set(0.12,0.84,0); g.add(rightLeg);
+
+  g.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.receiveShadow=true; } });
+  g.userData={leftArm,rightArm,leftLeg,rightLeg,head,walkPhase:Math.random()*10};
+  return g;
+}
+function animateHumanoid(mesh, dt, moving){
+  const u=mesh.userData;
+  u.walkPhase += dt*(moving?7:1.6);
+  const amp = moving?0.55:0.06;
+  u.leftLeg.rotation.x=Math.sin(u.walkPhase)*amp;
+  u.rightLeg.rotation.x=-Math.sin(u.walkPhase)*amp;
+  u.leftArm.rotation.x=-Math.sin(u.walkPhase)*amp*0.8;
+  u.rightArm.rotation.x=Math.sin(u.walkPhase)*amp*0.8;
+}
+
+/* ================= VEHICLES ================= */
+function wheel(){
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.32,0.24,10), new THREE.MeshStandardMaterial({color:0x1c1c1c}));
+  m.rotation.z=Math.PI/2; m.castShadow=true;
+  return m;
+}
+function createCar(){
+  const g=new THREE.Group();
+  const color=choice([0xb23b3b,0x2c5fa0,0xe0c23c,0xe8e8e8,0x2f6b3f]);
+  const body=createBox(1.8,0.68,3.6,color); body.position.y=0.62; g.add(body);
+  const cabin=createBox(1.5,0.55,1.9,0xcfe4f2,0.4); cabin.position.set(0,1.17,-0.2); g.add(cabin);
+  const positions=[[-0.85,0.34,1.15],[0.85,0.34,1.15],[-0.85,0.34,-1.15],[0.85,0.34,-1.15]];
+  positions.forEach(p=>{const w=wheel(); w.position.set(p[0],p[1],p[2]); g.add(w);});
+  const light=new THREE.Mesh(new THREE.SphereGeometry(0.09,6,6), new THREE.MeshStandardMaterial({color:0xfff6c8, emissive:0xffe89a, emissiveIntensity:0.8}));
+  light.position.set(0.6,0.62,1.82); g.add(light);
+  const light2=light.clone(); light2.position.x=-0.6; g.add(light2);
+  g.userData.type='car';
+  return g;
+}
+function createMotorcycle(){
+  const g=new THREE.Group();
+  const body=createBox(0.42,0.45,1.7, choice([0x2c2c2c,0xb23b3b,0x2c5fa0])); body.position.y=0.55; g.add(body);
+  const seat=createBox(0.4,0.1,0.6,0x1c1c1c); seat.position.set(0,0.82,-0.1); g.add(seat);
+  const w1=wheel(); w1.scale.set(0.9,0.9,0.9); w1.position.set(0,0.32,0.75); g.add(w1);
+  const w2=wheel(); w2.scale.set(0.9,0.9,0.9); w2.position.set(0,0.32,-0.75); g.add(w2);
+  g.userData.type='motorcycle';
+  return g;
+}
+function createAuto(){
+  const g=new THREE.Group();
+  const body=createBox(1.3,1.0,2.2,0xf2c94c); body.position.y=0.75; g.add(body);
+  const roof=new THREE.Mesh(new THREE.CylinderGeometry(0.68,0.68,1.4,10,1,false,0,Math.PI), new THREE.MeshStandardMaterial({color:0xf2c94c}));
+  roof.rotation.z=Math.PI/2; roof.rotation.y=Math.PI/2; roof.position.set(0,1.28,-0.1); g.add(roof);
+  const w1=wheel(); w1.position.set(0,0.32,0.85); g.add(w1);
+  const w2=wheel(); w2.position.set(-0.6,0.32,-0.75); g.add(w2);
+  const w3=wheel(); w3.position.set(0.6,0.32,-0.75); g.add(w3);
+  g.userData.type='auto';
+  return g;
+}
+function createBus(){
+  const g=new THREE.Group();
+  const body=createBox(2.2,2.3,7.6,0xe8e8ea); body.position.y=1.3; g.add(body);
+  const stripe=createBox(2.22,0.4,7.62,0x2c5fa0,0.5); stripe.position.y=1.9; g.add(stripe);
+  const positions=[[-0.95,0.4,2.6],[0.95,0.4,2.6],[-0.95,0.4,-2.6],[0.95,0.4,-2.6]];
+  positions.forEach(p=>{const w=wheel(); w.scale.set(1.2,1.2,1.2); w.position.set(p[0],p[1],p[2]); g.add(w);});
+  g.userData.type='bus';
+  return g;
+}
+function createVehicleMesh(type){
+  if(type==='car') return createCar();
+  if(type==='motorcycle') return createMotorcycle();
+  if(type==='auto') return createAuto();
+  return createBus();
+}
+
+/* ================= MANAGERS ================= */
+class NPCManager{
+  constructor(){ this.npcs=[]; }
+  addNPC(opts){
+    const colors={
+      skin: choice([0xd8a26b,0xc48a5a,0xe8bd8f,0xb87d52]),
+      shirt: opts.shirtColor || choice([0x2e7d32,0xb0392b,0x2255aa,0xd0a020,0x7a3fa0]),
+      pants: choice([0x33322f,0x5a4632,0x223344]),
+      hair: 0x22160e
+    };
+    const mesh=createHumanoid(colors);
+    const y=elevationAt(opts.x,opts.z);
+    mesh.position.set(opts.x,y,opts.z);
+    mesh.rotation.y=Math.random()*TAU;
+    scene.add(mesh);
+    const label=makeLabelSprite([opts.name], {height:0.36, bg:'rgba(10,10,10,0.6)'});
+    label.position.set(0,2.02,0); mesh.add(label);
+    const npc={
+      mesh, name:opts.name, x:opts.x, z:opts.z, homeX:opts.x, homeZ:opts.z,
+      radius: opts.radius!==undefined?opts.radius:3, dir:Math.random()*TAU, timer:rand(1,4)
+    };
+    mesh.position.x=npc.x; mesh.position.z=npc.z;
+    this.npcs.push(npc);
+    return npc;
+  }
+  update(dt){
+    for(const n of this.npcs){
+      n.timer-=dt;
+      let moving=false;
+      if(n.timer<=0){ n.dir=Math.random()*TAU; n.timer=rand(2.5,5.5); }
+      if(n.radius>0.1 && Math.random()<0.7){
+        const speed=0.32;
+        const nx=n.x+Math.cos(n.dir)*speed*dt;
+        const nz=n.z+Math.sin(n.dir)*speed*dt;
+        if(dist2D(nx,nz,n.homeX,n.homeZ)<n.radius){
+          n.x=nx; n.z=nz;
+          n.mesh.position.set(n.x, elevationAt(n.x,n.z), n.z);
+          n.mesh.rotation.y=-n.dir+Math.PI/2;
+          moving=true;
+        }
+      }
+      animateHumanoid(n.mesh, dt, moving);
+    }
+  }
+}
+
+class VehicleManager{
+  constructor(){ this.vehicles=[]; this.patrols=[]; }
+  addVehicle(type,x,z,heading,drivable){
+    const mesh=createVehicleMesh(type);
+    const statsMap={
+      car:{speed:15,turn:2.3,accel:9,radius:1.15,cost:4},
+      motorcycle:{speed:23,turn:3.6,accel:13,radius:0.6,cost:3},
+      auto:{speed:10,turn:3.9,accel:6.5,radius:0.9,cost:2},
+      bus:{speed:8,turn:1.1,accel:4,radius:1.7,cost:5}
+    };
+    const stats=statsMap[type];
+    const y=elevationAt(x,z);
+    mesh.position.set(x,y,z); mesh.rotation.y=heading||0;
+    scene.add(mesh);
+    const v={mesh,type,stats,x,z,heading:heading||0,speedCur:0,drivable:!!drivable,driving:false};
+    this.vehicles.push(v);
+    return v;
+  }
+  addPatrol(v, points){ v.patrol={points, idx:0}; this.patrols.push(v); }
+  updatePatrols(dt){
+    for(const v of this.patrols){
+      if(v.driving) continue;
+      const p=v.patrol; const t=p.points[p.idx];
+      const dx=t.x-v.x, dz=t.z-v.z; const d=Math.sqrt(dx*dx+dz*dz);
+      if(d<2){ p.idx=(p.idx+1)%p.points.length; continue; }
+      v.heading=Math.atan2(dx,dz);
+      const spd=v.stats.speed*0.42*dt;
+      v.x+=Math.sin(v.heading)*spd; v.z+=Math.cos(v.heading)*spd;
+      v.mesh.position.set(v.x, elevationAt(v.x,v.z), v.z);
+      v.mesh.rotation.y=v.heading;
+    }
+  }
+}
+
+/* -------- Player -------- */
+class PlayerController{
+  constructor(){
+    this.mesh=createHumanoid({skin:0xd8a26b, shirt:0x1f6fb2, pants:0x2b2b2b, hair:0x18110b});
+    this.x=0; this.z=-8; this.heading=0; this.walkSpeed=3.1; this.runSpeed=6.2; this.speed=this.walkSpeed; this.radius=0.42;
+    this.vehicle=null;
+    this.mesh.position.set(this.x, elevationAt(this.x,this.z), this.z);
+    scene.add(this.mesh);
+  }
+  setPosition(x,z){ this.x=x; this.z=z; this.mesh.position.set(x, elevationAt(x,z), z); }
+  update(dt, keys, camAzimuth){
+    if(this.vehicle){ this.mesh.visible=false; return; }
+    this.mesh.visible=true;
+    const forward = keys['w']||keys['arrowup'];
+    const backward = keys['s']||keys['arrowdown'];
+    const left = keys['a'];
+    const right = keys['d'];
+    this.speed = keys['shift'] ? this.runSpeed : this.walkSpeed;
+    this.heading=camAzimuth;
+    const fx=Math.sin(this.heading), fz=Math.cos(this.heading);
+    const rx=Math.sin(this.heading+Math.PI/2), rz=Math.cos(this.heading+Math.PI/2);
+    let mx=0, mz=0, moving=false;
+    if(forward){ mx+=fx; mz+=fz; moving=true; }
+    if(backward){ mx-=fx; mz-=fz; moving=true; }
+    if(right){ mx+=rx; mz+=rz; moving=true; }
+    if(left){ mx-=rx; mz-=rz; moving=true; }
+    const len=Math.sqrt(mx*mx+mz*mz);
+    if(len>0.001){
+      mx/=len; mz/=len;
+      const nx=this.x+mx*this.speed*dt;
+      const nz=this.z+mz*this.speed*dt;
+      const res=resolveCollision(nx,nz,this.radius);
+      this.x=res.x; this.z=res.z;
+      this.mesh.rotation.y=Math.atan2(mx,mz);
+    }
+    this.mesh.position.set(this.x, elevationAt(this.x,this.z), this.z);
+    animateHumanoid(this.mesh, dt, moving);
+  }
+}
+
+function updateDriving(dt, keys){
+  const v=Player.vehicle; if(!v) return;
+  const forward=keys['w']||keys['arrowup'];
+  const backward=keys['s']||keys['arrowdown'];
+  const steerL=keys['a']||keys['arrowleft'];
+  const steerR=keys['d']||keys['arrowright'];
+  const st=v.stats;
+  if(forward) v.speedCur=Math.min(st.speed, v.speedCur+st.accel*dt);
+  else if(backward) v.speedCur=Math.max(-st.speed*0.5, v.speedCur-st.accel*dt);
+  else v.speedCur*= Math.max(0, 1-2.2*dt);
+  if(Math.abs(v.speedCur)>0.06){
+    const dir=v.speedCur>=0?1:-1;
+    if(steerL) v.heading -= st.turn*dt*dir;
+    if(steerR) v.heading += st.turn*dt*dir;
+  }
+  const fx=Math.sin(v.heading), fz=Math.cos(v.heading);
+  const nx=v.x+fx*v.speedCur*dt;
+  const nz=v.z+fz*v.speedCur*dt;
+  if(!isOnRoad(nx,nz, st.radius)){
+    // vehicles must only travel on roads — reject off-road movement like hitting a curb
+    v.speedCur*=0.15;
+    v.mesh.position.set(v.x, elevationAt(v.x,v.z)+0.02, v.z);
+    v.mesh.rotation.y=v.heading;
+    Player.x=v.x; Player.z=v.z;
+    return;
+  }
+  const res=resolveCollision(nx,nz, st.radius);
+  if(Math.abs(res.x-nx)>0.01 || Math.abs(res.z-nz)>0.01) v.speedCur*=0.25;
+  v.x=res.x; v.z=res.z;
+  v.mesh.position.set(v.x, elevationAt(v.x,v.z)+0.02, v.z);
+  v.mesh.rotation.y=v.heading;
+  Player.x=v.x; Player.z=v.z;
+}
+
+/* -------- Camera -------- */
+class CameraController{
+  constructor(){
+    this.azimuth=0; this.polar=0.5; this.distance=8.5; this.minD=4; this.maxD=26;
+    this.target=new THREE.Vector3();
+    this.dragging=false; this.lastX=0; this.lastY=0;
+    this._bind();
+  }
+  _bind(){
+    const dom=renderer.domElement;
+    dom.addEventListener('mousedown', e=>{ this.dragging=true; this.lastX=e.clientX; this.lastY=e.clientY; });
+    window.addEventListener('mouseup', ()=>{ this.dragging=false; });
+    window.addEventListener('mousemove', e=>{
+      if(!this.dragging) return;
+      const dx=e.clientX-this.lastX, dy=e.clientY-this.lastY;
+      this.lastX=e.clientX; this.lastY=e.clientY;
+      this.azimuth -= dx*0.006;
+      this.polar = clamp(this.polar - dy*0.004, 0.16, 1.25);
+    });
+    dom.addEventListener('touchstart', e=>{ if(e.touches[0]){this.dragging=true; this.lastX=e.touches[0].clientX; this.lastY=e.touches[0].clientY;} }, {passive:true});
+    window.addEventListener('touchend', ()=>{ this.dragging=false; });
+    window.addEventListener('touchmove', e=>{
+      if(!this.dragging || !e.touches[0]) return;
+      const dx=e.touches[0].clientX-this.lastX, dy=e.touches[0].clientY-this.lastY;
+      this.lastX=e.touches[0].clientX; this.lastY=e.touches[0].clientY;
+      this.azimuth -= dx*0.006;
+      this.polar=clamp(this.polar-dy*0.004,0.16,1.25);
+    }, {passive:true});
+    dom.addEventListener('wheel', e=>{ this.distance=clamp(this.distance+e.deltaY*0.02, this.minD, this.maxD); }, {passive:true});
+  }
+  reset(){ this.distance=8.5; this.polar=0.5; }
+  update(dt, followPos, followHeading, mode, rotKeys){
+    if(!this.dragging && rotKeys){
+      if(rotKeys.left) this.azimuth -= 1.6*dt;
+      if(rotKeys.right) this.azimuth += 1.6*dt;
+    }
+    if(mode==='drive' && !this.dragging){
+      let diff=followHeading-this.azimuth;
+      diff=Math.atan2(Math.sin(diff),Math.cos(diff));
+      this.azimuth += diff*Math.min(1,dt*2.4);
+    }
+    const horizR=this.distance*Math.cos(this.polar);
+    const vert=this.distance*Math.sin(this.polar);
+    const dx=followPos.x - Math.sin(this.azimuth)*horizR;
+    const dz=followPos.z - Math.cos(this.azimuth)*horizR;
+    let dy=followPos.y+1.5+vert;
+    const groundY=elevationAt(dx,dz);
+    if(dy<groundY+0.7) dy=groundY+0.7;
+    camera.position.lerp(new THREE.Vector3(dx,dy,dz), Math.min(1,dt*7));
+    this.target.set(followPos.x, followPos.y+1.3, followPos.z);
+    camera.lookAt(this.target);
+  }
+}
+
+/* -------- Quest markers (glow objects) -------- */
+function createGlowMarker(kind){
+  const g=new THREE.Group();
+  let core;
+  if(kind==='chest'){
+    core=createBox(1.0,0.7,0.7,0x6b4423);
+    const lid=createBox(1.02,0.22,0.72,0x8a5a2e); lid.position.y=0.46; g.add(lid);
+    core.position.y=0.22; g.add(core);
+  } else if(kind==='crate'){
+    core=createBox(0.9,0.9,0.9,0x8a6a3f);
+    g.add(core);
+  } else {
+    core=new THREE.Mesh(new THREE.IcosahedronGeometry(0.28,0), new THREE.MeshStandardMaterial({color:0xffce4a, emissive:0xffb23a, emissiveIntensity:0.9, roughness:0.3}));
+    core.position.y=0.5;
+    g.add(core);
+  }
+  const light=new THREE.PointLight(0xffcf7a, 1.4, 7);
+  light.position.y=0.8; g.add(light);
+  // simple particle sprinkle
+  const pCount=18;
+  const pGeo=new THREE.BufferGeometry();
+  const parr=new Float32Array(pCount*3);
+  for(let i=0;i<pCount;i++){
+    parr[i*3]=rand(-0.5,0.5); parr[i*3+1]=rand(0,1.3); parr[i*3+2]=rand(-0.5,0.5);
+  }
+  pGeo.setAttribute('position', new THREE.BufferAttribute(parr,3));
+  const pMat=new THREE.PointsMaterial({color:0xffe6a8, size:0.07, transparent:true, opacity:0.85, blending:THREE.AdditiveBlending, depthWrite:false});
+  const points=new THREE.Points(pGeo,pMat);
+  g.add(points);
+  g.userData={core, light, points, t:Math.random()*10, kind};
+  return g;
+}
+function animateGlowMarker(marker, dt){
+  const u=marker.userData;
+  u.t+=dt;
+  u.core.rotation.y+=dt*0.8;
+  u.core.position.y = (u.kind==='chest'?0.22:u.kind==='crate'?0:0.5) + Math.sin(u.t*1.6)*0.05;
+  u.light.intensity = 1.1+Math.sin(u.t*3)*0.35;
+  const pos=u.points.geometry.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    let y=pos.getY(i)+dt*0.35;
+    if(y>1.3) y=0;
+    pos.setY(i,y);
+  }
+  pos.needsUpdate=true;
+}
+
+/* ================= SHOP MANAGER ================= */
+class ShopManager{
+  constructor(){ this.shops=[]; }
+  addShop(data){
+    data.discovered=false;
+    this.shops.push(data);
+    createShopBuilding(data);
+    return data;
+  }
+  update(){
+    for(const s of this.shops){
+      const d=dist2D(Player.x,Player.z,s.position.x,s.position.z);
+      if(!s.discovered && d<9.5){
+        s.discovered=true;
+        Stats.shops++;
+        UI.toast('NEW SHOP DISCOVERED', s.name);
+        Audio.play('discover');
+        UI.showShopDiscovery(s);
+        UI.refreshStats();
+      }
+    }
+  }
+}
+
+/* ================= TREASURE / QUEST MANAGER ================= */
+class TreasureManager{
+  constructor(){ this.treasures=[]; this.active=null; this.activeMarkers=[]; }
+  addTreasure(t){ this.treasures.push(t); return t; }
+  activate(id){
+    const t=this.treasures.find(x=>x.id===id);
+    if(!t || t.completed) return;
+    if(t.activated && this.active===t){ UI.expandQuest(); return; }
+    t.activated=true;
+    this.active=t;
+    this.clearMarkers();
+    t.stepIdx=t.stepIdx||0;
+    this.revealStep(t, t.stepIdx);
+    UI.showQuest(t);
+    UI.toast('QUEST STARTED', t.name);
+    Audio.play('discover');
+  }
+  clearMarkers(){
+    for(const m of this.activeMarkers){ scene.remove(m.obj); }
+    this.activeMarkers=[];
+  }
+  revealStep(t, idx){
+    if(idx>=t.steps.length) return;
+    const step=t.steps[idx];
+    if(step.type==='talk'){
+      // handled via NPC interaction check
+    } else {
+      const kind = step.type==='collect' ? 'chest' : step.type==='push' ? 'crate' : 'glow';
+      const obj=createGlowMarker(kind);
+      placeAt(obj, step.target.x, step.target.z, 0);
+      scene.add(obj);
+      const promptLabel = step.type==='collect' ? 'E — COLLECT' : step.type==='push' ? 'E — PUSH' : 'E — SEARCH';
+      this.activeMarkers.push({obj, x:step.target.x, z:step.target.z, t, idx, promptLabel});
+    }
+    UI.updateQuest(t, idx);
+  }
+  onNPCInteract(npc){
+    const t=this.active;
+    if(!t) return false;
+    const step=t.steps[t.stepIdx];
+    if(step && step.type==='talk' && step.npcName===npc.name){
+      this.advance(t);
+      return true;
+    }
+    return false;
+  }
+  onMarkerInteract(marker){
+    const t=marker.t;
+    const step=t.steps[marker.idx];
+    scene.remove(marker.obj);
+    this.activeMarkers=this.activeMarkers.filter(m=>m!==marker);
+    if(step.type==='collect'){
+      this.collect(t);
+    } else {
+      Audio.play('step');
+      UI.toast(step.type==='push'?'OBSTACLE CLEARED':'CLUE FOUND', '');
+      this.advance(t);
+    }
+  }
+  advance(t){
+    t.stepIdx++;
+    if(t.stepIdx<t.steps.length){
+      this.revealStep(t, t.stepIdx);
+    }
+  }
+  collect(t){
+    t.completed=true;
+    Stats.treasures++;
+    Offers.add(t);
+    this.active=null;
+    UI.showQuest(null);
+    UI.showReward(t);
+    Audio.play('reward');
+    UI.refreshStats();
+  }
+  markerCandidates(){ return this.activeMarkers; }
+}
+
+/* ================= OFFER MANAGER ================= */
+class OfferManager{
+  constructor(){ this.offers=[]; }
+  add(t){
+    this.offers.push({
+      shop:t.shopName, title:t.reward.title, discount:t.reward.discount,
+      code:t.reward.code, difficulty:t.difficulty, date:new Date().toLocaleDateString()
+    });
+    UI.renderOffers();
+  }
+}
+
+/* ================= SAVE MANAGER ================= */
+const Save={
+  save(){
+    const data={
+      player:{x:Player.x, z:Player.z},
+      discoveredShops: Shops.shops.filter(s=>s.discovered).map(s=>s.id),
+      completedTreasures: Treasures.treasures.filter(t=>t.completed).map(t=>t.id),
+      offers: Offers.offers,
+      discoveredZones: Array.from(discoveredZones),
+      coins: Economy.coins,
+      stats: {treasures:Stats.treasures, shops:Stats.shops, offers:Offers.offers.length, locations:discoveredZones.size}
+    };
+    try{ localStorage.setItem('keralaGameSave_v1', JSON.stringify(data)); UI.toast('GAME SAVED',''); }
+    catch(e){ UI.toast('SAVE FAILED',''); }
+  },
+  load(){
+    let raw=null;
+    try{ raw=localStorage.getItem('keralaGameSave_v1'); }catch(e){}
+    if(!raw) return;
+    try{
+      const data=JSON.parse(raw);
+      if(data.player) Player.setPosition(data.player.x, data.player.z);
+      (data.discoveredShops||[]).forEach(id=>{ const s=Shops.shops.find(x=>x.id===id); if(s){ s.discovered=true; } });
+      (data.completedTreasures||[]).forEach(id=>{ const t=Treasures.treasures.find(x=>x.id===id); if(t){ t.completed=true; t.activated=true; } });
+      Offers.offers = data.offers||[];
+      (data.discoveredZones||[]).forEach(z=>discoveredZones.add(z));
+      if(typeof data.coins==='number') Economy.coins=data.coins;
+      UI.renderOffers(); UI.refreshStats(); UI.refreshCoins();
+    }catch(e){ console.warn('load failed', e); }
+  },
+  reset(){
+    try{ localStorage.removeItem('keralaGameSave_v1'); }catch(e){}
+    location.reload();
+  }
+};
+
+/* ================= AUDIO ================= */
+class AudioManager{
+  constructor(){ this.ctx=null; }
+  ensure(){ if(!this.ctx){ try{ this.ctx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } }
+  play(type){
+    try{
+      this.ensure();
+      if(!this.ctx) return;
+      const ctx=this.ctx; const now=ctx.currentTime;
+      const o=ctx.createOscillator(); const g=ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      let freq=440, dur=0.15, wave='sine';
+      if(type==='clue'){ freq=660; dur=0.12; }
+      else if(type==='discover'){ freq=520; dur=0.18; }
+      else if(type==='reward'){ freq=784; dur=0.4; wave='triangle'; }
+      else if(type==='step'){ freq=590; dur=0.1; }
+      o.frequency.value=freq; o.type=wave;
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.16, now+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, now+dur);
+      o.start(now); o.stop(now+dur+0.02);
+      if(type==='reward'){
+        const o2=ctx.createOscillator(); const g2=ctx.createGain();
+        o2.connect(g2); g2.connect(ctx.destination);
+        o2.frequency.value=988; o2.type='triangle';
+        g2.gain.setValueAtTime(0.0001, now+0.15);
+        g2.gain.exponentialRampToValueAtTime(0.14, now+0.17);
+        g2.gain.exponentialRampToValueAtTime(0.0001, now+0.55);
+        o2.start(now+0.15); o2.stop(now+0.6);
+      }
+    }catch(e){}
+  }
+}
+
+/* ================= INTERACTION MANAGER ================= */
+const Interact={
+  pending:null,
+  update(){
+    const promptEl=document.getElementById('interactionPrompt');
+    if(Player.vehicle){
+      promptEl.textContent='F — EXIT VEHICLE';
+      promptEl.classList.add('show');
+      this.pending={type:'exitVehicle'};
+      return;
+    }
+    let best=null, bestD=Infinity, bestLabel=null;
+    for(const n of NPCs.npcs){
+      const d=dist2D(Player.x,Player.z,n.x,n.z);
+      if(d<3.0 && d<bestD){ bestD=d; best={type:'npc', ref:n}; bestLabel='E — TALK'; }
+    }
+    for(const v of Vehicles.vehicles){
+      if(!v.drivable || v.driving) continue;
+      const d=dist2D(Player.x,Player.z,v.x,v.z);
+      if(d<3.2 && d<bestD){ bestD=d; best={type:'vehicle', ref:v}; bestLabel='F — RENT ('+v.stats.cost+' coins)'; }
+    }
+    for(const m of Treasures.markerCandidates()){
+      const d=dist2D(Player.x,Player.z,m.x,m.z);
+      if(d<3.4 && d<bestD){ bestD=d; best={type:'marker', ref:m}; bestLabel=m.promptLabel; }
+    }
+    if(best && best.type!=='vehicle'){
+      promptEl.textContent=bestLabel;
+      promptEl.classList.add('show');
+      this.pending=best;
+    } else if(best && best.type==='vehicle'){
+      promptEl.textContent=bestLabel;
+      promptEl.classList.add('show');
+      this.pending=best;
+    } else {
+      promptEl.classList.remove('show');
+      this.pending=null;
+    }
+  },
+  triggerE(){
+    if(!this.pending) return;
+    if(this.pending.type==='npc'){
+      const npc=this.pending.ref;
+      const used=Treasures.onNPCInteract(npc);
+      UI.toast(npc.name, used?'gave you a clue':'says hello');
+    } else if(this.pending.type==='marker'){
+      Treasures.onMarkerInteract(this.pending.ref);
+    }
+  },
+  triggerF(){
+    if(Player.vehicle){
+      const v=Player.vehicle;
+      v.driving=false;
+      Player.setPosition(v.x + Math.sin(v.heading+1.6)*1.6, v.z + Math.cos(v.heading+1.6)*1.6);
+      Player.vehicle=null;
+      return;
+    }
+    if(this.pending && this.pending.type==='vehicle'){
+      const v=this.pending.ref;
+      if(!Economy.spend(v.stats.cost)){
+        UI.toast('NOT ENOUGH COINS', `Need ${v.stats.cost} coins to rent this ${v.type}`);
+        Audio.play('step');
+        return;
+      }
+      v.driving=true; v.speedCur=0;
+      Player.vehicle=v;
+      UI.toast('VEHICLE RENTED', `${v.stats.cost} coins used`);
+    }
+  }
+};
+
+/* ================= ECONOMY (coins / tokens for vehicle rental) ================= */
+const Economy={
+  coins:6,
+  add(n){ this.coins+=n; UI.refreshCoins(); },
+  spend(n){ if(this.coins<n) return false; this.coins-=n; UI.refreshCoins(); return true; }
+};
+
+class CoinManager{
+  constructor(){ this.coinsInWorld=[]; }
+  scatter(count){
+    let placed=0, attempts=0;
+    const dummyGeo=new THREE.CylinderGeometry(0.32,0.32,0.08,14);
+    const mat=new THREE.MeshStandardMaterial({color:0xffce4a, emissive:0xffb23a, emissiveIntensity:0.6, metalness:0.6, roughness:0.3});
+    while(placed<count && attempts<count*25){
+      attempts++;
+      const onRoadPick = Math.random()<0.6 && roadSegments.length>0;
+      let x,z;
+      if(onRoadPick){
+        const r=choice(roadSegments);
+        const t=rand(0.15,0.85);
+        x=lerp(r.x1,r.x2,t)+rand(-1.4,1.4);
+        z=lerp(r.z1,r.z2,t)+rand(-1.4,1.4);
+      } else {
+        x=rand(-220,220); z=rand(-220,140);
+      }
+      if(isBlockedForPlanting(x,z,0.8)) continue;
+      const y=elevationAt(x,z);
+      const mesh=new THREE.Mesh(dummyGeo, mat);
+      mesh.rotation.x=Math.PI/2;
+      mesh.position.set(x,y+0.5,z);
+      mesh.castShadow=true;
+      scene.add(mesh);
+      this.coinsInWorld.push({mesh,x,z,t:Math.random()*10});
+      placed++;
+    }
+  }
+  update(dt){
+    for(let i=this.coinsInWorld.length-1;i>=0;i--){
+      const c=this.coinsInWorld[i];
+      c.t+=dt;
+      c.mesh.rotation.z+=dt*2.4;
+      c.mesh.position.y = elevationAt(c.x,c.z)+0.5+Math.sin(c.t*2)*0.08;
+      if(dist2D(Player.x,Player.z,c.x,c.z)<1.3 && !Player.vehicle){
+        scene.remove(c.mesh);
+        this.coinsInWorld.splice(i,1);
+        Economy.add(1);
+        Audio.play('step');
+      }
+    }
+  }
+}
+
+/* ================= STATS / ZONES ================= */
+const Stats={ treasures:0, shops:0 };
+const discoveredZones=new Set();
+const ZONES=[
+  {name:'Wayanad Village', x:-120,z:-60,r:55},
+  {name:'Munnar Hills', x:120,z:-100,r:70},
+  {name:'Kuttanad Paddy Fields', x:-140,z:80,r:60},
+  {name:'Alleppey Backwaters', x:60,z:100,r:55},
+  {name:'Kovalam Coast', x:0,z:170,r:60},
+  {name:'Ernakulam Town Center', x:0,z:0,r:42},
+  {name:'Thrissur Heritage', x:150,z:20,r:50},
+  {name:'Kochi Waterfront', x:-40,z:-14,r:38}
+];
+function checkZones(){
+  for(const z of ZONES){
+    if(discoveredZones.has(z.name)) continue;
+    if(dist2D(Player.x,Player.z,z.x,z.z)<z.r){
+      discoveredZones.add(z.name);
+      UI.toast('NEW AREA DISCOVERED', z.name);
+      UI.refreshStats();
+    }
+  }
+}
+
+/* ================= UI MANAGER ================= */
+const UI={
+  minimapBig:false,
+  toast(title, sub){
+    const stack=document.getElementById('notifStack');
+    const el=document.createElement('div');
+    el.className='notif';
+    el.innerHTML=`${title}${sub?`<span class="sub">${sub}</span>`:''}`;
+    stack.appendChild(el);
+    requestAnimationFrame(()=>el.classList.add('show'));
+    setTimeout(()=>{ el.classList.remove('show'); setTimeout(()=>el.remove(),350); }, 2800);
+  },
+  refreshCoins(){ const el=document.getElementById('coinCount'); if(el) el.textContent=Economy.coins; },
+  toggleQuestPanel(){ document.getElementById('questPanel').classList.toggle('expanded'); },
+  expandQuest(){ document.getElementById('questPanel').classList.add('expanded'); },
+  showQuest(t){
+    const empty=document.getElementById('questEmpty');
+    const active=document.getElementById('questActive');
+    if(!t){ empty.style.display='block'; active.style.display='none'; return; }
+    empty.style.display='none'; active.style.display='block';
+    document.getElementById('qName').textContent=t.name;
+    document.getElementById('qMeta').textContent=`${t.difficulty.toUpperCase()} · ${t.shopName}`;
+    this.expandQuest();
+  },
+  updateQuest(t, idx){
+    if(Treasures.active!==t) return;
+    document.getElementById('qClue').textContent = t.steps[idx] ? t.steps[idx].clue : '';
+    const ul=document.getElementById('questSteps');
+    ul.innerHTML='';
+    t.steps.forEach((s,i)=>{
+      const li=document.createElement('li');
+      const done = i<idx;
+      li.className = done?'done':'';
+      li.innerHTML=`<span class="mark">${done?'✓':'○'}</span><span>${s.label}</span>`;
+      ul.appendChild(li);
+    });
+    document.getElementById('questReward').textContent = `Reward: ${t.reward.title}`;
+  },
+  refreshStats(){
+    const row=document.getElementById('questStatsRow');
+    row.innerHTML=`<span>🏆 ${Stats.treasures}/${Treasures.treasures.length}</span>`+
+      `<span>🏪 ${Stats.shops}/${Shops.shops.length}</span>`+
+      `<span>🎁 ${Offers.offers.length}/${Treasures.treasures.length}</span>`+
+      `<span>📍 ${discoveredZones.size}/${ZONES.length}</span>`;
+    document.getElementById('statsBlock').innerHTML=
+      `Treasures found: ${Stats.treasures} / ${Treasures.treasures.length}<br>`+
+      `Shops discovered: ${Stats.shops} / ${Shops.shops.length}<br>`+
+      `Offers unlocked: ${Offers.offers.length} / ${Treasures.treasures.length}<br>`+
+      `Locations explored: ${discoveredZones.size} / ${ZONES.length}<br>`+
+      `Coins held: ${Economy.coins} 🪙`;
+    this.refreshCoins();
+  },
+  toggleOffers(){
+    const p=document.getElementById('offersPanel');
+    document.getElementById('settingsPanel').classList.remove('show');
+    p.classList.toggle('show');
+  },
+  renderOffers(){
+    const list=document.getElementById('offersList');
+    if(Offers.offers.length===0){ list.innerHTML='<div id="offersEmpty">No offers unlocked yet — find treasures to collect them.</div>'; return; }
+    list.innerHTML = Offers.offers.map(o=>`
+      <div class="offerCard">
+        <div class="shop">${o.shop}</div>
+        <div class="title">${o.title}</div>
+        <div class="meta"><span class="code">${o.code}</span><span>${o.date} · UNLOCKED</span></div>
+      </div>`).join('');
+  },
+  toggleSettings(){
+    const p=document.getElementById('settingsPanel');
+    document.getElementById('offersPanel').classList.remove('show');
+    this.refreshStats();
+    p.classList.toggle('show');
+  },
+  toggleHelp(){ document.getElementById('controlsHelpBox').classList.toggle('show'); },
+  toggleMinimapSize(){
+    this.minimapBig=!this.minimapBig;
+    const wrap=document.getElementById('minimapWrap');
+    wrap.classList.toggle('big', this.minimapBig);
+    const c=document.getElementById('minimapCanvas');
+    const size = this.minimapBig?340:168;
+    c.width=size*2; c.height=size*2;
+  },
+  _shopModalRef:null,
+  showShopDiscovery(s){
+    this._shopModalRef=s;
+    document.getElementById('sm_name').textContent=s.name;
+    document.getElementById('sm_offer').textContent='Current Offer: '+s.offer.title;
+    const t=Treasures.treasures.find(x=>x.shopId===s.id);
+    document.getElementById('sm_status').textContent='Treasure Status: '+(t&&t.completed?'Collected':(t&&t.activated?'In Progress':'Hidden'));
+    document.getElementById('sm_desc').style.display='none';
+    document.getElementById('sm_desc').textContent=s.offer.description;
+    document.getElementById('shopModal').classList.add('show');
+  },
+  closeShopModal(){ document.getElementById('shopModal').classList.remove('show'); },
+  shopViewOffer(){ document.getElementById('sm_desc').style.display='block'; },
+  shopFindTreasure(){
+    const s=this._shopModalRef; if(!s) return;
+    const t=Treasures.treasures.find(x=>x.shopId===s.id);
+    if(t) Treasures.activate(t.id);
+    this.closeShopModal();
+  },
+  shopNavigate(){
+    const s=this._shopModalRef; if(!s) return;
+    Minimap.ping={x:s.position.x, z:s.position.z, t:0};
+    this.closeShopModal();
+  },
+  openOwnerPanel(){
+    const sel=document.getElementById('own_shop');
+    sel.innerHTML = Shops.shops.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+    document.getElementById('ownerPanel').classList.add('show');
+  },
+  closeOwnerPanel(){ document.getElementById('ownerPanel').classList.remove('show'); },
+  publishOffer(){
+    const id=document.getElementById('own_shop').value;
+    const title=document.getElementById('own_title').value.trim() || '10% OFF';
+    const discount=document.getElementById('own_discount').value.trim() || title;
+    const desc=document.getElementById('own_desc').value.trim() || 'Find the hidden treasure to unlock this offer.';
+    const diff=document.getElementById('own_diff').value;
+    const shop=Shops.shops.find(s=>s.id===id);
+    if(!shop) return;
+    shop.offer={title, discountLabel:discount, description:desc, code:('SAVE'+Math.floor(rand(100,999)))};
+    if(shop.sign){
+      const newSign=makeLabelSprite([shop.name, discount], {height:1.05, border:'#e0a12c', subColor:'#9ad18f'});
+      newSign.position.copy(shop.sign.position);
+      shop.mesh.remove(shop.sign);
+      shop.mesh.add(newSign);
+      shop.sign=newSign;
+    }
+    let t=Treasures.treasures.find(x=>x.shopId===id);
+    if(t && !t.completed){
+      t.difficulty=diff;
+      t.reward={title, discount, code:shop.offer.code};
+    }
+    this.closeOwnerPanel();
+    this.toast('OFFER PUBLISHED', shop.name);
+  },
+  showReward(t){
+    document.getElementById('rw_shop').textContent=t.shopName;
+    document.getElementById('rw_discount').textContent=t.reward.discount;
+    document.getElementById('rw_code').textContent='CODE: '+t.reward.code;
+    const ov=document.getElementById('rewardOverlay');
+    ov.classList.add('show');
+    setTimeout(()=>{ ov.classList.remove('show'); }, 3200);
+  }
+};
+
+/* ================= MINIMAP ================= */
+const Minimap={
+  ping:null,
+  draw(){
+    const canvas=document.getElementById('minimapCanvas');
+    const ctx=canvas.getContext('2d');
+    const W=canvas.width, H=canvas.height;
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#16241a';
+    ctx.fillRect(0,0,W,H);
+    const range=470;
+    function w2m(x,z){ return { mx:(x+235)/range*W, my:(z+235)/range*H }; }
+    // water
+    ctx.fillStyle='rgba(56,120,170,0.7)';
+    let p=w2m(60,100); ctx.beginPath(); ctx.arc(p.mx,p.my, 55/range*W, 0, TAU); ctx.fill();
+    ctx.fillRect(0, w2m(0,148).my, W, H);
+    // roads
+    ctx.strokeStyle='rgba(210,210,210,0.35)';
+    ctx.lineWidth=Math.max(1,W*0.006);
+    for(let i=0;i<roadSegments.length;i+=1){
+      const r=roadSegments[i];
+      const a=w2m(r.x1,r.z1), b=w2m(r.x2,r.z2);
+      ctx.beginPath(); ctx.moveTo(a.mx,a.my); ctx.lineTo(b.mx,b.my); ctx.stroke();
+    }
+    // shops
+    ctx.font=`${Math.max(8,W*0.03)}px sans-serif`;
+    for(const s of Shops.shops){
+      if(!s.discovered) continue;
+      const m=w2m(s.position.x, s.position.z);
+      ctx.fillStyle= (s.id===(Treasures.active&&Treasures.active.shopId))?'#ffce4a':'#e0a12c';
+      ctx.beginPath(); ctx.moveTo(m.mx, m.my-5); ctx.lineTo(m.mx-4,m.my+4); ctx.lineTo(m.mx+4,m.my+4); ctx.closePath(); ctx.fill();
+    }
+    // active quest marker
+    if(Treasures.active){
+      const t=Treasures.active;
+      const step=t.steps[t.stepIdx];
+      if(step && step.target){
+        const m=w2m(step.target.x, step.target.z);
+        const pulse=2+Math.sin(performance.now()*0.006)*1.2;
+        ctx.fillStyle='#ffe15c';
+        ctx.beginPath(); ctx.arc(m.mx,m.my,4+pulse,0,TAU); ctx.fill();
+      }
+    }
+    // completed treasures (stars)
+    for(const t of Treasures.treasures){
+      if(t.completed){
+        const m=w2m(t.location.x, t.location.z);
+        ctx.fillStyle='#9ad18f';
+        ctx.font=`${Math.max(9,W*0.035)}px sans-serif`;
+        ctx.fillText('★', m.mx-4, m.my+4);
+      }
+    }
+    // ping
+    if(this.ping){
+      this.ping.t+=0.05;
+      const m=w2m(this.ping.x,this.ping.z);
+      const r=(this.ping.t*40)%22;
+      ctx.strokeStyle='rgba(255,206,74,'+Math.max(0,1-r/22)+')';
+      ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(m.mx,m.my,r,0,TAU); ctx.stroke();
+      if(this.ping.t>2.5) this.ping=null;
+    }
+    // player
+    const pm=w2m(Player.x,Player.z);
+    const heading = Player.vehicle? Player.vehicle.heading : Player.heading;
+    ctx.save();
+    ctx.translate(pm.mx,pm.my);
+    ctx.rotate(heading);
+    ctx.fillStyle='#e84f3a';
+    ctx.beginPath();
+    ctx.moveTo(0,-7); ctx.lineTo(-5,6); ctx.lineTo(5,6); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+};
+
+/* ================= WORLD DATA (shops, npcs, vehicles, treasures) ================= */
+let Player, Cam, NPCs, Vehicles, Shops, Treasures, Offers, Audio;
+
+function buildWorldData(){
+  Shops = new ShopManager();
+  Treasures = new TreasureManager();
+  Offers = new OfferManager();
+  NPCs = new NPCManager();
+  Vehicles = new VehicleManager();
+
+  const shopColors={ tea:0xd08a3e, bakery:0xd9b06a, cafe:0xc46a4d, mart:0x6f9e5a, snacks:0xcf9a3a, kitchen:0xb0542f, sweet:0xd67a9a, seafood:0x3f7f9e };
+
+  const shopDefs=[
+    {id:'malabar', name:'Malabar Tea Corner', type:'tea', position:{x:-135,z:-45}, color:shopColors.tea,
+      offer:{title:'Free Chaya', discountLabel:'FREE CHAYA', description:'Complete the hunt to enjoy a free cup of Kerala chaya.', code:'CHAYAFREE'}},
+    {id:'freshmart', name:'Village Fresh Mart', type:'mart', position:{x:-102,z:-78}, color:shopColors.mart,
+      offer:{title:'10% OFF Banana Chips', discountLabel:'10% OFF', description:'10% off crunchy Kerala banana chips (upperi).', code:'FRESH10'}},
+    {id:'keralabites', name:'Kerala Bites', type:'snacks', position:{x:16,z:-14}, color:shopColors.snacks,
+      offer:{title:'20% OFF Samosa Combo', discountLabel:'20% OFF', description:'Find the hidden treasure and unlock your discount.', code:'SAMOSA20'}},
+    {id:'spiceroute', name:'Spice Route Bakery', type:'bakery', position:{x:-14,z:19}, color:shopColors.bakery,
+      offer:{title:'Free Pazham Pori', discountLabel:'FREE FRITTER', description:'A sweet banana fritter reward for the sharp-eyed explorer.', code:'SWEETFIND'}},
+    {id:'coconutgrove', name:'Coconut Grove Café', type:'cafe', position:{x:78,z:83}, color:shopColors.cafe,
+      offer:{title:'15% OFF Appam & Stew', discountLabel:'15% OFF', description:'15% off appam & vegetable stew on the backwater-view menu.', code:'GROVE15'}},
+    {id:'backwatersnacks', name:'Backwater Snacks', type:'snacks', position:{x:44,z:122}, color:shopColors.snacks,
+      offer:{title:'Buy 1 Get 1 Kappa', discountLabel:'BUY 1 GET 1', description:'Kappa & meen curry, buy one get one free.', code:'B1G1WATER'}},
+    {id:'hillviewtea', name:'Hill View Tea Shop', type:'tea', position:{x:108,z:-128}, color:shopColors.tea,
+      offer:{title:'20% OFF Sulaimani', discountLabel:'20% OFF', description:'Sip spiced Sulaimani tea with the best view on the hill road.', code:'HILL20'}},
+    {id:'bananaleaf', name:'Banana Leaf Kitchen', type:'kitchen', position:{x:-158,z:58}, color:shopColors.kitchen,
+      offer:{title:'₹100 OFF Sadya Thali', discountLabel:'₹100 OFF', description:'A full onam-style sadya meal, ₹100 off for treasure hunters.', code:'SADYA100'}},
+    {id:'coastalbites', name:'Coastal Bites', type:'seafood', position:{x:8,z:148}, color:shopColors.seafood,
+      offer:{title:'Free Karimeen Fry', discountLabel:'FREE FISH FRY', description:'Fresh pearl-spot fish fry off the coastal grill, on the house.', code:'SEASNACK'}},
+    {id:'samosajunction', name:'Samosa Junction', type:'snacks', position:{x:163,z:33}, color:shopColors.snacks,
+      offer:{title:'25% OFF Malabar Biryani', discountLabel:'25% OFF', description:'Our biggest legendary-tier discount on Malabar biryani.', code:'LEGEND25'}},
+    {id:'puttukada', name:"Amma's Puttu Kada", type:'kitchen', position:{x:-6,z:-24}, color:shopColors.kitchen,
+      offer:{title:'Free Puttu & Kadala', discountLabel:'FREE PUTTU', description:'Steamed rice puttu with black chickpea curry, on the house.', code:'PUTTUFREE'}},
+    {id:'parottastall', name:'Malabar Parotta Stall', type:'snacks', position:{x:30,z:-4}, color:shopColors.snacks,
+      offer:{title:'15% OFF Parotta & Beef', discountLabel:'15% OFF', description:'Flaky Malabar parotta with a rich beef fry side.', code:'PAROTTA15'}},
+    {id:'payasamhouse', name:'Payasam House', type:'sweet', position:{x:-30,z:-6}, color:shopColors.sweet,
+      offer:{title:'Free Ada Pradhaman', discountLabel:'FREE PAYASAM', description:'A warm bowl of jaggery-coconut ada pradhaman.', code:'PAYASAMFREE'}},
+    {id:'kochifishmarket', name:'Kochi Fish Market Café', type:'seafood', position:{x:-46,z:-20}, color:shopColors.seafood,
+      offer:{title:'20% OFF Fish Moilee', discountLabel:'20% OFF', description:'Coconut-milk fish moilee by the Chinese fishing nets.', code:'MOILEE20'}},
+    {id:'munnarscoops', name:"Munnar Tea Estate Scoops", type:'tea', position:{x:132,z:-108}, color:shopColors.tea,
+      offer:{title:'10% OFF Tea & Chatti Pathiri', discountLabel:'10% OFF', description:'Estate-fresh tea with layered chatti pathiri.', code:'ESTATE10'}},
+    {id:'kovalamgrill', name:'Kovalam Seaside Grill', type:'seafood', position:{x:-18,z:156}, color:shopColors.seafood,
+      offer:{title:'Buy 1 Get 1 Prawns', discountLabel:'BUY 1 GET 1', description:'Chilli prawns by the lighthouse, buy one get one.', code:'PRAWNB1G1'}},
+    {id:'thrissursweets', name:'Thrissur Sweets & Halwa', type:'sweet', position:{x:140,z:32}, color:shopColors.sweet,
+      offer:{title:'₹50 OFF Halwa Box', discountLabel:'₹50 OFF', description:'Soft, ghee-rich Thrissur-style halwa.', code:'HALWA50'}},
+    {id:'kuttanadkitchen', name:'Kuttanad Rice Kitchen', type:'kitchen', position:{x:-170,z:96}, color:shopColors.kitchen,
+      offer:{title:'Free Nadan Kozhi Curry', discountLabel:'FREE CURRY', description:'Farm-style chicken curry from the paddy fields.', code:'KOZHIFREE'}}
+  ];
+  shopDefs.forEach(d=>Shops.addShop(d));
+
+  // ---- NPCs (clue givers + ambient) ----
+  const clueNPCs=[
+    {name:'Appu', x:-128,z:-52, shop:'malabar'},
+    {name:'Kutty', x:20,z:-8, shop:'keralabites'},
+    {name:'Beena', x:70,z:88, shop:'coconutgrove'},
+    {name:'Raman the Fisherman', x:50,z:128, shop:'backwatersnacks'},
+    {name:'Vijayan', x:102,z:-120, shop:'hillviewtea'},
+    {name:'Saraswathi', x:-150,z:64, shop:'bananaleaf'},
+    {name:'Joseph', x:12,z:142, shop:'coastalbites'},
+    {name:'Elder Krishnan', x:158,z:28, shop:'samosajunction'},
+    {name:'Ammu', x:-4,z:-20, shop:'puttukada'},
+    {name:'Rasheed', x:28,z:0, shop:'parottastall'},
+    {name:'Lakshmi', x:-28,z:-2, shop:'payasamhouse'},
+    {name:'Xavier', x:-44,z:-18, shop:'kochifishmarket'},
+    {name:'Priya', x:128,z:-104, shop:'munnarscoops'},
+    {name:'Aniyan', x:-16,z:152, shop:'kovalamgrill'},
+    {name:'Warrier', x:136,z:29, shop:'thrissursweets'},
+    {name:'Chinnamma', x:-166,z:92, shop:'kuttanadkitchen'}
+  ];
+  clueNPCs.forEach(n=>NPCs.addNPC({name:n.name, x:n.x, z:n.z, radius:2.5}));
+  const ambient=[
+    {name:'Radha', x:-110,z:-65}, {name:'Hari', x:5,z:6}, {name:'Little Ammu', x:-118,z:-70},
+    {name:'Thomas', x:150,z:15}, {name:'Devi', x:-140,z:75}, {name:'Shaji', x:70,z:105}
+  ];
+  ambient.forEach(n=>NPCs.addNPC({name:n.name, x:n.x, z:n.z, radius:4}));
+
+  // ---- Vehicles (rented with coins — parked exactly on road points) ----
+  const villageSpoke=ROAD_POINTS.village||[];
+  const hillSpoke=ROAD_POINTS.hill||[];
+  const hub=ROAD_POINTS.hub||[];
+  Vehicles.addVehicle('auto', hub[1]?hub[1].x:-8, hub[1]?hub[1].z:-4, 0.3, true);
+  Vehicles.addVehicle('motorcycle', villageSpoke[3]?villageSpoke[3].x:-95, villageSpoke[3]?villageSpoke[3].z:-70, 1.1, true);
+  Vehicles.addVehicle('car', hub[2]?hub[2].x:10, hub[2]?hub[2].z:8, -0.6, true);
+  Vehicles.addVehicle('bus', hub[3]?hub[3].x:22, hub[3]?hub[3].z:3, 1.6, true);
+  const stop=createBusStop(hub[3]?hub[3].x+2:24, hub[3]?hub[3].z+2:6);
+  Vehicles.addVehicle('auto', hillSpoke[2]?hillSpoke[2].x:60, hillSpoke[2]?hillSpoke[2].z:-40, 2.2, true);
+  // patrol vehicles (ambient traffic, stay on the hub loop)
+  const loop=hub;
+  const patrolCar=Vehicles.addVehicle('car', hub[0].x,hub[0].z,0,false);
+  Vehicles.addPatrol(patrolCar, loop);
+  const patrolAuto=Vehicles.addVehicle('auto', hub[4].x,hub[4].z,Math.PI,false);
+  Vehicles.addPatrol(patrolAuto, loop.slice().reverse());
+
+  // ---- Treasures (data-driven) ----
+  function T(id, shopId, shopName, difficulty, name, clueIntro, steps, reward){
+    Treasures.addTreasure({
+      id, shopId, shopName, difficulty, name, clueIntro, steps, stepIdx:0,
+      location: steps[steps.length-1].target, activated:false, completed:false,
+      reward
+    });
+  }
+
+  T('t_malabar','malabar','Malabar Tea Corner','easy','The Golden Chaya',
+    'Where coconut shadows meet the old village road, look for the place where travelers stop for tea.',
+    [
+      {type:'search', label:'Search near the tea stall', clue:'A warm cup always leaves a trace nearby. Search around the tea corner.', target:{x:-131,z:-40}},
+      {type:'collect', label:'Collect the treasure', clue:'The glow is close now.', target:{x:-135,z:-45}}
+    ],
+    {title:'Free Tea', discount:'FREE TEA', code:'CHAYAFREE'});
+
+  T('t_freshmart','freshmart','Village Fresh Mart','easy','Fresh Find',
+    'Near the fresh mart, something valuable was left among the baskets.',
+    [
+      {type:'search', label:'Search the market baskets', clue:'Check behind the fruit baskets outside the mart.', target:{x:-98,z:-82}},
+      {type:'collect', label:'Collect the treasure', clue:'The prize is within reach.', target:{x:-102,z:-78}}
+    ],
+    {title:'10% OFF', discount:'10% OFF', code:'FRESH10'});
+
+  T('t_kerala','keralabites','Kerala Bites','medium','The Hidden Samosa',
+    'A friendly face near the town crossing knows where the old clue box is kept.',
+    [
+      {type:'talk', label:'Talk to Kutty', clue:'Find Kutty near the town crossing and ask about the treasure.', npcName:'Kutty', target:{x:20,z:-8}},
+      {type:'search', label:'Search near the road junction', clue:'Kutty points you toward the road junction — look closely.', target:{x:12,z:-6}},
+      {type:'collect', label:'Collect the treasure', clue:'The glow is close now.', target:{x:16,z:-14}}
+    ],
+    {title:'20% OFF Samosa Combo', discount:'20% OFF', code:'SAMOSA20'});
+
+  T('t_spice','spiceroute','Spice Route Bakery','easy','Sweet Secret',
+    'The bakery smell drifts down the lane — somewhere close, a sweet reward waits.',
+    [
+      {type:'search', label:'Search behind the bakery', clue:'Check behind the ovens where the flour sacks are stacked.', target:{x:-10,z:24}},
+      {type:'collect', label:'Collect the treasure', clue:'Almost there.', target:{x:-14,z:19}}
+    ],
+    {title:'Free Dessert', discount:'FREE DESSERT', code:'SWEETFIND'});
+
+  T('t_coconut','coconutgrove','Coconut Grove Café','medium','Backwater Whisper',
+    'Beena by the backwater café has heard whispers of a hidden offer.',
+    [
+      {type:'talk', label:'Talk to Beena', clue:'Beena stands near the café by the water — ask her about the treasure.', npcName:'Beena', target:{x:70,z:88}},
+      {type:'search', label:'Search near the canal path', clue:'She points toward the canal path behind the café.', target:{x:82,z:90}},
+      {type:'collect', label:'Collect the treasure', clue:'It is glowing softly now.', target:{x:78,z:83}}
+    ],
+    {title:'15% OFF', discount:'15% OFF', code:'GROVE15'});
+
+  T('t_backwater','backwatersnacks','Backwater Snacks','hard','The Fisherman\'s Riddle',
+    'Old Raman by the docks only shares his secrets with those who ask politely.',
+    [
+      {type:'talk', label:'Talk to Raman the Fisherman', clue:'Raman waits near the dock. Ask him about the treasure.', npcName:'Raman the Fisherman', target:{x:50,z:128}},
+      {type:'search', label:'Search near the small dock', clue:'He tells you to check near the old dock posts.', target:{x:40,z:132}},
+      {type:'push', label:'Push the crate blocking the path', clue:'A crate is blocking the last stretch of path — clear it.', target:{x:46,z:118}},
+      {type:'collect', label:'Collect the treasure', clue:'The chest is finally uncovered.', target:{x:44,z:122}}
+    ],
+    {title:'Buy 1 Get 1', discount:'BUY 1 GET 1', code:'B1G1WATER'});
+
+  T('t_hillview','hillviewtea','Hill View Tea Shop','medium','The Hilltop Clue',
+    'Vijayan at the hill viewpoint has watched this road for thirty years.',
+    [
+      {type:'talk', label:'Talk to Vijayan', clue:'Climb the hill road and find Vijayan near the viewpoint.', npcName:'Vijayan', target:{x:102,z:-120}},
+      {type:'search', label:'Search near the curved hill road', clue:'He remembers something buried near the sharp bend.', target:{x:115,z:-118}},
+      {type:'collect', label:'Collect the treasure', clue:'The glow is unmistakable now.', target:{x:108,z:-128}}
+    ],
+    {title:'20% OFF', discount:'20% OFF', code:'HILL20'});
+
+  T('t_banana','bananaleaf','Banana Leaf Kitchen','hard','Paddy Field Puzzle',
+    'Saraswathi tends the paddy fields and remembers where farmers once buried their savings.',
+    [
+      {type:'talk', label:'Talk to Saraswathi', clue:'Find Saraswathi working among the paddy fields.', npcName:'Saraswathi', target:{x:-150,z:64}},
+      {type:'search', label:'Search near the canal edge', clue:'She points to the narrow canal at the field\'s edge.', target:{x:-165,z:50}},
+      {type:'push', label:'Push the farm crate aside', clue:'A stack of crates blocks the old storage hut.', target:{x:-160,z:66}},
+      {type:'collect', label:'Collect the treasure', clue:'The hut door creaks open — the treasure glows within.', target:{x:-158,z:58}}
+    ],
+    {title:'₹100 OFF', discount:'₹100 OFF', code:'SADYA100'});
+
+  T('t_coastal','coastalbites','Coastal Bites','medium','Seaside Secret',
+    'Joseph mends nets by the coastal road and always notices new footprints in the sand.',
+    [
+      {type:'talk', label:'Talk to Joseph', clue:'Joseph is by the coastal road, mending fishing nets.', npcName:'Joseph', target:{x:12,z:142}},
+      {type:'search', label:'Search near the beach stalls', clue:'He noticed something glinting near the seafood stalls.', target:{x:2,z:146}},
+      {type:'collect', label:'Collect the treasure', clue:'The tide has uncovered it.', target:{x:8,z:148}}
+    ],
+    {title:'Free Snack', discount:'FREE SNACK', code:'SEASNACK'});
+
+  T('t_samosa','samosajunction','Samosa Junction','legendary','The Legend of Samosa Junction',
+    'Elder Krishnan at the heritage temple speaks only in riddles about the district\'s oldest treasure.',
+    [
+      {type:'talk', label:'Talk to Elder Krishnan', clue:'Find Elder Krishnan near the heritage temple.', npcName:'Elder Krishnan', target:{x:158,z:28}},
+      {type:'search', label:'Search the temple grounds', clue:'He speaks of a marker hidden near the temple steps.', target:{x:150,z:23}},
+      {type:'search', label:'Search near the old signpost', clue:'A second clue lies near the crossroads signpost.', target:{x:172,z:40}},
+      {type:'push', label:'Clear the blocked shrine path', clue:'A fallen cart blocks the final shrine path.', target:{x:166,z:30}},
+      {type:'collect', label:'Collect the legendary treasure', clue:'The legendary glow reveals itself at last.', target:{x:163,z:33}}
+    ],
+    {title:'25% OFF', discount:'25% OFF', code:'LEGEND25'});
+
+  T('t_puttu','puttukada',"Amma's Puttu Kada",'easy','The Steamer\'s Secret',
+    'Ammu near the puttu stall hides small treasures for hungry explorers.',
+    [
+      {type:'talk', label:'Talk to Ammu', clue:'Ammu is near the puttu stall — ask her about the treasure.', npcName:'Ammu', target:{x:-4,z:-20}},
+      {type:'collect', label:'Collect the treasure', clue:'The glow is right behind the steamer stack.', target:{x:-6,z:-24}}
+    ],
+    {title:'Free Puttu & Kadala', discount:'FREE PUTTU', code:'PUTTUFREE'});
+
+  T('t_parotta','parottastall','Malabar Parotta Stall','easy','Flaky Fortune',
+    'Rasheed flips parottas all day and always notices what\'s hidden nearby.',
+    [
+      {type:'search', label:'Search near the parotta stall', clue:'Check around the stacked flour tins.', target:{x:26,z:-1}},
+      {type:'collect', label:'Collect the treasure', clue:'Almost there.', target:{x:30,z:-4}}
+    ],
+    {title:'15% OFF Parotta & Beef', discount:'15% OFF', code:'PAROTTA15'});
+
+  T('t_payasam','payasamhouse','Payasam House','medium','The Sweet Riddle',
+    'Lakshmi stirs payasam by the hour and remembers everything that passes her window.',
+    [
+      {type:'talk', label:'Talk to Lakshmi', clue:'Lakshmi is at Payasam House — ask about the treasure.', npcName:'Lakshmi', target:{x:-28,z:-2}},
+      {type:'search', label:'Search near the jaggery barrels', clue:'She points you to the jaggery barrels out back.', target:{x:-34,z:-8}},
+      {type:'collect', label:'Collect the treasure', clue:'The sweet glow is close.', target:{x:-30,z:-6}}
+    ],
+    {title:'Free Ada Pradhaman', discount:'FREE PAYASAM', code:'PAYASAMFREE'});
+
+  T('t_kochifish','kochifishmarket','Kochi Fish Market Café','medium','Nets and Secrets',
+    'Xavier works the Chinese fishing nets at Kochi Waterfront and has seen every stranger who passes.',
+    [
+      {type:'talk', label:'Talk to Xavier', clue:'Xavier works the fishing nets at the Kochi Waterfront.', npcName:'Xavier', target:{x:-44,z:-18}},
+      {type:'search', label:'Search near the fishing nets', clue:'He tells you to check beneath the net counterweights.', target:{x:-38,z:-14}},
+      {type:'collect', label:'Collect the treasure', clue:'The chest gleams beside the water.', target:{x:-46,z:-20}}
+    ],
+    {title:'20% OFF Fish Moilee', discount:'20% OFF', code:'MOILEE20'});
+
+  T('t_munnar','munnarscoops','Munnar Tea Estate Scoops','medium','Tea Terrace Trail',
+    'Priya walks the tea terraces every morning and knows every hidden corner.',
+    [
+      {type:'talk', label:'Talk to Priya', clue:'Priya is among the Munnar tea terraces.', npcName:'Priya', target:{x:128,z:-104}},
+      {type:'search', label:'Search along the tea rows', clue:'She remembers something tucked between the terrace rows.', target:{x:120,z:-112}},
+      {type:'collect', label:'Collect the treasure', clue:'The estate treasure glows softly.', target:{x:132,z:-108}}
+    ],
+    {title:'10% OFF Tea & Chatti Pathiri', discount:'10% OFF', code:'ESTATE10'});
+
+  T('t_kovalam','kovalamgrill','Kovalam Seaside Grill','hard','Lighthouse Legend',
+    'Aniyan grills prawns beneath the Kovalam lighthouse and guards an old fisherman\'s tale.',
+    [
+      {type:'talk', label:'Talk to Aniyan', clue:'Aniyan is grilling near the Kovalam lighthouse.', npcName:'Aniyan', target:{x:-16,z:152}},
+      {type:'search', label:'Search near the lighthouse base', clue:'He points toward the lighthouse foundation stones.', target:{x:-22,z:158}},
+      {type:'push', label:'Push the beached crate aside', clue:'An old crate blocks the last stretch of sand.', target:{x:-18,z:148}},
+      {type:'collect', label:'Collect the treasure', clue:'The lighthouse glow reveals the chest.', target:{x:-18,z:156}}
+    ],
+    {title:'Buy 1 Get 1 Prawns', discount:'BUY 1 GET 1', code:'PRAWNB1G1'});
+
+  T('t_thrissur','thrissursweets','Thrissur Sweets & Halwa','medium','The Pooram Trail',
+    'Warrier near the heritage elephant statue remembers every Pooram festival.',
+    [
+      {type:'talk', label:'Talk to Warrier', clue:'Warrier stands near the elephant statue at Thrissur Heritage.', npcName:'Warrier', target:{x:140,z:32}},
+      {type:'search', label:'Search near the elephant statue', clue:'He remembers a marker left near the statue base.', target:{x:148,z:26}},
+      {type:'collect', label:'Collect the treasure', clue:'The halwa-shop treasure glows nearby.', target:{x:140,z:32}}
+    ],
+    {title:'₹50 OFF Halwa Box', discount:'₹50 OFF', code:'HALWA50'});
+
+  T('t_kuttanad','kuttanadkitchen','Kuttanad Rice Kitchen','hard','Paddy Trail Treasure',
+    'Chinnamma has farmed these paddy fields for decades and buried more than rice here.',
+    [
+      {type:'talk', label:'Talk to Chinnamma', clue:'Chinnamma works the Kuttanad paddy fields.', npcName:'Chinnamma', target:{x:-166,z:92}},
+      {type:'search', label:'Search near the canal bank', clue:'She points toward the canal bank near the fields.', target:{x:-178,z:100}},
+      {type:'push', label:'Push the rice-sack cart aside', clue:'A rice cart blocks the storehouse door.', target:{x:-172,z:94}},
+      {type:'collect', label:'Collect the treasure', clue:'The storehouse treasure finally glows.', target:{x:-170,z:96}}
+    ],
+    {title:'Free Nadan Kozhi Curry', discount:'FREE CURRY', code:'KOZHIFREE'});
+
+  UI.refreshStats();
+}
+
+/* ================= INTRO CINEMATIC ================= */
+const Intro={
+  playing:true,
+  t:0,
+  frames:[
+    {pos:{x:120,y:42,z:-142}, look:{x:120,y:6,z:-100}},
+    {pos:{x:-102,y:26,z:-92}, look:{x:-120,y:3,z:-60}},
+    {pos:{x:0,y:20,z:-22}, look:{x:0,y:2,z:0}},
+    {pos:{x:-150,y:19,z:58}, look:{x:-140,y:1,z:80}},
+    {pos:{x:42,y:22,z:58}, look:{x:60,y:1,z:100}},
+    {pos:{x:8,y:18,z:150}, look:{x:0,y:1,z:190}}
+  ],
+  segDur:1.75,
+  update(dt){
+    if(!this.playing) return;
+    this.t+=dt;
+    const total=this.segDur*(this.frames.length-1);
+    const tt=Math.min(this.t, total);
+    const segF=tt/this.segDur;
+    const i=Math.min(this.frames.length-2, Math.floor(segF));
+    const localT=smooth(clamp(segF-i,0,1));
+    const a=this.frames[i], b=this.frames[i+1];
+    camera.position.set(lerp(a.pos.x,b.pos.x,localT), lerp(a.pos.y,b.pos.y,localT), lerp(a.pos.z,b.pos.z,localT));
+    const lx=lerp(a.look.x,b.look.x,localT), ly=lerp(a.look.y,b.look.y,localT), lz=lerp(a.look.z,b.look.z,localT);
+    camera.lookAt(lx,ly,lz);
+    if(this.t>1.4 && !this._titled){
+      this._titled=true;
+      document.getElementById('introTitleWrap').classList.add('show');
+      setTimeout(()=>document.getElementById('introButtons').classList.add('show'), 500);
+    }
+  },
+  finish(){
+    if(!this.playing) return;
+    this.playing=false;
+    const ov=document.getElementById('introOverlay');
+    ov.classList.add('fading');
+    document.getElementById('introSkip').style.display='none';
+    setTimeout(()=>{ ov.style.display='none'; }, 850);
+    Cam.azimuth=Player.heading;
+  }
+};
+
+/* ================= MAIN LOOP ================= */
+const keys={};
+let rotKeys={left:false,right:false};
+
+function bindKeys(){
+  window.addEventListener('keydown', e=>{
+    const k=e.key.toLowerCase();
+    keys[k]=true;
+    if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) e.preventDefault();
+    if(k==='arrowleft') rotKeys.left=true;
+    if(k==='arrowright') rotKeys.right=true;
+    if(k==='e') Interact.triggerE();
+    if(k==='f') Interact.triggerF();
+    if(k==='m') UI.toggleMinimapSize();
+    if(k==='q') UI.toggleQuestPanel();
+    if(k==='o') UI.toggleOffers();
+    if(k==='escape') UI.toggleSettings();
+  });
+  window.addEventListener('keyup', e=>{
+    const k=e.key.toLowerCase();
+    keys[k]=false;
+    if(k==='arrowleft') rotKeys.left=false;
+    if(k==='arrowright') rotKeys.right=false;
+  });
+}
+
+let minimapTimer=0;
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=Math.min(0.05, clock.getDelta());
+
+  if(Intro.playing){
+    Intro.update(dt);
+    renderer.render(scene,camera);
+    return;
+  }
+
+  if(Player.vehicle){
+    updateDriving(dt, keys);
+  } else {
+    Player.update(dt, keys, Cam.azimuth);
+  }
+  NPCs.update(dt);
+  Vehicles.updatePatrols(dt);
+  if(Coins) Coins.update(dt);
+  Treasures.activeMarkers.forEach(m=>animateGlowMarker(m.obj, dt));
+
+  const followPos = Player.vehicle ? {x:Player.vehicle.x, y:elevationAt(Player.vehicle.x,Player.vehicle.z), z:Player.vehicle.z}
+                                    : {x:Player.x, y:elevationAt(Player.x,Player.z), z:Player.z};
+  const followHeading = Player.vehicle ? Player.vehicle.heading : Player.heading;
+  Cam.update(dt, followPos, followHeading, Player.vehicle?'drive':'walk', rotKeys);
+
+  sunLight.target.position.set(followPos.x, 0, followPos.z);
+  const tNow=performance.now()*0.0002;
+  waterMats.forEach(m=>{ m.opacity=0.75+Math.sin(tNow*3)*0.05; });
+
+  Interact.update();
+  Shops.update();
+  checkZones();
+
+  minimapTimer+=dt;
+  if(minimapTimer>0.05){ minimapTimer=0; Minimap.draw(); }
+
+  renderer.render(scene,camera);
+}
+
+/* ================= INIT ================= */
+let Coins;
+function init(){
+  initRenderer();
+  buildTerrain();
+  buildRoadNetwork();
+  buildWater();
+
+  // static landmark buildings & iconic district structures — built BEFORE vegetation
+  // and BEFORE shops so nothing later overlaps them, and all register solid blockers.
+  createTemple(150,20);
+  createChurch(-60,-100);
+  createMosque(40,-30);
+  createBridge(60,45,Math.PI/2);
+  createChineseFishingNet(-42,-16, 0.6);
+  createLighthouse(-20,160);
+  createElephantStatue(146,26);
+  createTeaTerraces(120,-100);
+  createHouseboat(50,90,0.3);
+  createHouseboat(76,108,-0.5);
+
+  // shops (register their own box blockers, nudged clear of roads) — built before
+  // procedural houses/vegetation so nothing else is placed on top of them
+  buildWorldData();
+
+  for(let i=0;i<10;i++) createHouse(rand(-160,-80), rand(-90,-30));
+  for(let i=0;i<6;i++) createHouse(rand(90,150), rand(-140,-70));
+
+  // vegetation & coins scattered last so they respect every building/road blocker
+  scatterVegetation();
+  Coins=new CoinManager();
+  Coins.scatter(46);
+
+  Player=new PlayerController();
+  Cam=new CameraController();
+  Audio=new AudioManager();
+
+  Save.load();
+  bindKeys();
+  UI.refreshStats();
+  UI.refreshCoins();
+
+  animate();
+}
+window.addEventListener('load', init);
+</script>
+</body>
+</html>
 
