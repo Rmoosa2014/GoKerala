@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Explore Kerala — Treasure &amp; Taste</title>
+<title>Explore Kerala — Treasure & Taste</title>
 <style>
   :root{
     --gold:#e0a12c;
@@ -110,7 +110,8 @@
   #shopModal .desc{font-size:12.5px;color:var(--text-dim);margin-bottom:10px;display:none;line-height:1.45;}
   #shopModal .row{display:flex;gap:8px;flex-wrap:wrap;}
   #shopModal .closeX{position:absolute;top:8px;right:10px;background:none;color:var(--text-dim);font-size:16px;}
-/* ---------- PROFILE & CHAT PANELS ---------- */
+  
+  /* ---------- PROFILE & CHAT PANELS ---------- */
   #profilePanel { position:fixed; top:64px; right:14px; width:280px; z-index:50; padding:16px; display:none; }
   #profilePanel.show { display:block; }
   #profilePanel .avatar { width:48px; height:48px; border-radius:50%; margin-bottom:10px; border:2px solid var(--gold); }
@@ -256,6 +257,7 @@
     <button class="btn small" id="chatSendBtn" onclick="Chat.send()" disabled>Send</button>
   </div>
 </div>
+
 <!-- INTERACTION PROMPT -->
 <div id="interactionPrompt" class="panel"></div>
 
@@ -381,6 +383,7 @@
 const SUPABASE_URL = "https://mkhjctnplddegomialwk.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_JznPm-DU6lsiO2VRfRwPtA_TJf_8JWW";
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 const Auth = {
   currentUser: null,
   profile: null,
@@ -2435,8 +2438,7 @@ function init(){
   buildRoadNetwork();
   buildWater();
 
-  // static landmark buildings & iconic district structures — built BEFORE vegetation
-  // and BEFORE shops so nothing later overlaps them, and all register solid blockers.
+  // static landmark buildings & iconic district structures
   createTemple(150,20);
   createChurch(-60,-100);
   createMosque(40,-30);
@@ -2448,14 +2450,11 @@ function init(){
   createHouseboat(50,90,0.3);
   createHouseboat(76,108,-0.5);
 
-  // shops (register their own box blockers, nudged clear of roads) — built before
-  // procedural houses/vegetation so nothing else is placed on top of them
   buildWorldData();
 
   for(let i=0;i<10;i++) createHouse(rand(-160,-80), rand(-90,-30));
   for(let i=0;i<6;i++) createHouse(rand(90,150), rand(-140,-70));
 
-  // vegetation & coins scattered last so they respect every building/road blocker
   scatterVegetation();
   Coins=new CoinManager();
   Coins.scatter(46);
@@ -2465,14 +2464,12 @@ function init(){
   Audio=new AudioManager();
 
   Save.load();
- 
   bindKeys();
   UI.refreshStats();
   UI.refreshCoins();
 
   animate();
 }
-
 
 // THIS LINE IS CRITICAL TO START THE GAME
 window.addEventListener('load', init);
