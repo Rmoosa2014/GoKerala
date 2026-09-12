@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Transit Register — Student Transport &amp; Attendance</title>
+<title>My School</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -440,7 +440,6 @@ async function fetchDashboardData(schoolId, role, userId) {
     liveData.buses = buses || [];
 
     // 2. Fetch Students
-    // If it's a driver, we only want students on their bus. If admin, get all.
     let studentQuery = supabaseClient.from('students').select('*').eq('school_id', schoolId);
     if (role === 'driver') {
       const myBus = liveData.buses.find(b => b.driver_id === userId);
@@ -454,7 +453,7 @@ async function fetchDashboardData(schoolId, role, userId) {
     const { data: students } = await studentQuery;
     liveData.students = students || [];
 
-    // 3. Fetch Today's Transit Logs for those students
+    // 3. Fetch Today's Transit Logs
     if (liveData.students.length > 0) {
       const studentIds = liveData.students.map(s => s.id);
       
@@ -462,9 +461,22 @@ async function fetchDashboardData(schoolId, role, userId) {
         .from('transit_logs')
         .select('*')
         .in('student_id', studentIds)
-        .eq('date', new Date().toISOString().split('T')[0]); // Only today's logs
+        .eq('date', new Date().toISOString().split('T')[0]);
         
       liveData.transitLogs = logs || [];
+    }
+
+    // 4. Fetch Today's Attendance (THIS IS WHERE IT BELONGS!)
+    if (liveData.students.length > 0) {
+      const studentIds = liveData.students.map(s => s.id);
+      
+      const { data: att } = await supabaseClient
+        .from('attendance')
+        .select('*')
+        .in('student_id', studentIds)
+        .eq('date', new Date().toISOString().split('T')[0]);
+        
+      liveData.attendance = att || [];
     }
 
     console.log("Data successfully loaded:", liveData);
@@ -944,59 +956,111 @@ function parentAttendance(kids){
    TEACHER
    ============================================================ */
 function teacherTab(){
-  if(state.tab==='map') return fleetMapBlock();
-  if(state.tab==='attendance') return teacherAttendance();
-  return teacherRoster();
+  if(state.tab === 'attendance') return teacherAttendance();
+  return teacherRoster(); // Default to Roster overview
 }
+
 function teacherRoster(){
-  const list = studentsForTeacher(state.userId);
+  const list = liveData.students;
+  
+  if (list.length === 0) {
+    return `<div class="empty">No students assigned to your class yet.</div>`;
+  }
+
   return `
     <div class="flow-note">✎ Confirm students as they arrive in the morning and leave in the afternoon — this closes the loop the driver opened.</div>
     <div class="grid g2">
-      ${list.map(s=>`
+      ${list.map(s => {
+        const sBus = bus(s.bus_id);
+        const sLogs = liveData.transitLogs.filter(l => l.student_id === s.id);
+        
+        // Driver actions
+        const driverMorningDrop = sLogs.some(l => l.event_type === 'school_drop');
+        const driverEveningPickup = sLogs.some(l => l.event_type === 'school_pickup');
+        
+        // (In a full implementation, we would check the transit_approvals table here. 
+        // For now, we will focus purely on the driver's side of the UI to get it rendering)
+
+        return `
         <div class="card card-pad">
-          <div class="section-title"><h3 class="row-flex"><span class="avatar">${s.initials}</span>${s.name}</h3></div>
-          <div class="stu-sub" style="margin:-8px 0 6px 39px;">${bus(s.busId).name}</div>
+          <div class="section-title"><h3 class="row-flex"><span class="avatar">${s.name.substring(0,2).toUpperCase()}</span>${s.name}</h3></div>
+          <div class="stu-sub" style="margin:-8px 0 6px 39px;">${sBus.name}</div>
+          
           <div class="stu-sub" style="margin:0 0 4px; font-weight:600; color:var(--sub);">MORNING ARRIVAL</div>
-          ${morningSteps(s,'teacher')}
+          ${stepper([
+            { label: 'Driver dropped', state: driverMorningDrop ? 'done' : 'pending' },
+            { label: 'Teacher confirms', state: driverMorningDrop ? 'active' : 'locked', action: driverMorningDrop ? {label: 'Approve', fn: `alert('Approval logic coming next!')`} : null }
+          ])}
+          
           <div class="stu-sub" style="margin:10px 0 4px; font-weight:600; color:var(--sub);">AFTERNOON DEPARTURE</div>
-          ${eveningSteps(s,'teacher')}
+           ${stepper([
+            { label: 'Driver picked up', state: driverEveningPickup ? 'done' : 'pending' },
+            { label: 'Teacher confirms', state: driverEveningPickup ? 'active' : 'locked', action: driverEveningPickup ? {label: 'Approve', fn: `alert('Approval logic coming next!')`} : null }
+          ])}
         </div>
-      `).join('')}
+      `}).join('')}
     </div>
   `;
 }
+
 function teacherAttendance(){
-  const list = studentsForTeacher(state.userId);
+  const list = liveData.students;
   return `
     <div class="card card-pad">
       <div class="section-title"><h3>Three-periodical attendance</h3><span class="count">${todayStr()}</span></div>
       <table>
         <tr><th>Student</th><th>Period 1 · 08:30</th><th>Period 2 · 11:15</th><th>Period 3 · 02:00</th></tr>
-        ${list.map(s=>`
+        ${list.length === 0 ? `<tr><td colspan="4" class="empty">No students found.</td></tr>` : 
+          list.map(s => `
           <tr>
-            <td class="row-flex"><span class="avatar">${s.initials}</span>${s.name}</td>
-            ${['p1','p2','p3'].map(p=>teacherAttendanceCell(s,p)).join('')}
+            <td class="row-flex"><span class="avatar">${s.name.substring(0,2).toUpperCase()}</span>${s.name}</td>
+            ${['p1','p2','p3'].map(p => teacherAttendanceCell(s, p)).join('')}
           </tr>`).join('')}
       </table>
     </div>
   `;
 }
-function teacherAttendanceCell(s,p){
-  const a = s.attendance[p];
+
+function teacherAttendanceCell(s, p){
+  // Find if attendance is already marked in liveData for this period today
+  const attRecord = liveData.attendance ? liveData.attendance.find(a => a.student_id === s.id && a.period === p) : null;
+  const currentStatus = attRecord ? attRecord.status : '';
+
   return `<td>
-    <select class="att-select" onchange="teacherSetAttendance('${s.id}','${p}',this.value)">
+    <select class="att-select" onchange="logAttendance('${s.id}', '${p}', this.value)">
       <option value="">Mark…</option>
-      <option value="Present" ${a.status==='Present'?'selected':''}>Present</option>
-      <option value="Late" ${a.status==='Late'?'selected':''}>Late</option>
-      <option value="Absent" ${a.status==='Absent'?'selected':''}>Absent</option>
-    </select><br>
-    <button class="mini-btn ghost" style="margin-top:6px;" ${!a.status||a.teacherApproved?'disabled':''} onclick="teacherApproveAttendance('${s.id}','${p}')">
-      ${a.teacherApproved?'✓ Approved':'Approve'}
-    </button>
-    <div style="font-size:10.5px; color:var(--faint); margin-top:4px;">Student: ${a.studentApproved?'✓ acknowledged':'waiting'}</div>
+      <option value="Present" ${currentStatus === 'Present' ? 'selected' : ''}>Present</option>
+      <option value="Late" ${currentStatus === 'Late' ? 'selected' : ''}>Late</option>
+      <option value="Absent" ${currentStatus === 'Absent' ? 'selected' : ''}>Absent</option>
+    </select>
   </td>`;
 }
+
+// Function to save attendance directly to Supabase
+async function logAttendance(studentId, period, status) {
+  if (!status) return; // Do nothing if they select the empty "Mark..." option
+
+  // Insert or Update the attendance record
+  const { error } = await supabaseClient
+    .from('attendance')
+    .upsert({
+      student_id: studentId,
+      date: new Date().toISOString().split('T')[0],
+      period: period,
+      status: status,
+      teacher_id: state.userId
+    }, { onConflict: 'student_id, date, period' }); 
+    // ^ This onConflict ensures it updates the existing record if the teacher changes their mind
+  
+  if (error) {
+    alert("Error saving attendance: " + error.message);
+  } else {
+    // Fetch fresh data and redraw
+    await fetchDashboardData(state.schoolId, state.role, state.userId);
+    renderMain();
+  }
+}
+
 
 /* ============================================================
    STUDENT
