@@ -416,70 +416,62 @@ function showRoleSelection() {
   document.getElementById('login-email').value = '';
   document.getElementById('login-password').value = '';
 }
-
 /* ============================================================
-   DATA MODEL (Old DB object goes here, though we will delete it soon!)
+   LIVE DATA MANAGEMENT
    ============================================================ */
-const DB = {  schools: [
-    { id: 'sch1', name: 'Riverside Primary', totalStudents: 1248, activeBuses: 42, alerts: 3 },
-    { id: 'sch2', name: 'Oakridge High', totalStudents: 850, activeBuses: 28, alerts: 0 },
-    { id: 'sch3', name: 'Crescent Academy', totalStudents: 2100, activeBuses: 65, alerts: 12 }
-  ],
-  buses: [
-    { id:'bus1', name:'Bus 07 · Green Line', driverId:'drv1', stops:['Willow Court','Green Park Gate','Lotus Avenue','Cedar Street','Riverside School'], stopPos:[6,26,48,70,92] },
-    { id:'bus2', name:'Bus 12 · Amber Line', driverId:'drv2', stops:['Maple Heights','Sunset Crossing','Old Mill Road','Riverside School'], stopPos:[8,34,64,92] }
-  ],
-  drivers: [
-    { id:'drv1', name:'Rahim Sheikh', busId:'bus1' },
-    { id:'drv2', name:'Meera Nair', busId:'bus2' }
-  ],
-  teachers: [
-    { id:'tch1', name:'Ms. Noor Iqbal', classes:['Grade 5 - A'] },
-    { id:'tch2', name:'Mr. Elias Brown', classes:['Grade 6 - B'] }
-  ],
-  parents: [
-    { id:'par1', name:'Farida Khan', childIds:['stu1'] },
-    { id:'par2', name:'Daniel Ortiz', childIds:['stu2'] },
-    { id:'par3', name:'Wei Chen', childIds:['stu3'] },
-    { id:'par4', name:'Grace Adeyemi', childIds:['stu4'] }
-  ],
-  students: [
-    mkStudent('stu1','Ayesha Khan','Grade 5 - A','bus1','par1','tch1','AK'),
-    mkStudent('stu2','Diego Ortiz','Grade 5 - A','bus1','par2','tch1','DO'),
-    mkStudent('stu3','Lin Chen','Grade 6 - B','bus2','par3','tch2','LC'),
-    mkStudent('stu4','Tomiwa Adeyemi','Grade 6 - B','bus2','par4','tch2','TA'),
-  ],
-  maintenance: [
-    { id: 'm1', busId: 'bus1', driverId: 'drv1', category: 'Brakes', description: 'Squeaking sound when applying brakes at low speed.', severity: 'High', status: 'Pending', date: '2026-08-12' },
-    { id: 'm2', busId: 'bus2', driverId: 'drv2', category: 'AC', description: 'Air conditioning cooling efficiency low in mid-day.', severity: 'Medium', status: 'In Progress', date: '2026-08-10' }
-  ],
-  substitutions: [
-    { id: 'sub1', originalBusId: 'bus1', replacementBusId: 'bus2', reason: 'Brake Servicing', startDate: '2026-08-14', status: 'Active' }
-  ],
-  locationRequests: [
-    { id: 'lr1', studentId: 'stu1', parentId: 'par1', currentStop: 'Willow Court', requestedStop: 'Al Noor Residence', status: 'Pending', reason: 'Family temporary move' }
-  ],
-  incidents: [
-    { id: 'inc1', busId: 'bus1', driverId: 'drv1', severity: 'Low', description: 'Traffic delay due to road construction on Green Park road.', time: '07:30 AM' }
-  ],
-  calendar: [
-    { id: 'cal1', title: 'Early Dismissal (12:30 PM)', date: '2026-08-20', type: 'Schedule Change', scope: 'All Buses' },
-    { id: 'cal2', title: 'National Day Holiday', date: '2026-09-23', type: 'Holiday', scope: 'School Closed' }
-  ]
+let liveData = {
+  schools: [],
+  profiles: [],
+  buses: [],
+  students: [],
+  transitLogs: [],
+  attendance: []
 };
-function mkStudent(id,name,cls,busId,parentId,teacherId,initials){
-  return {
-    id,name,cls,busId,parentId,teacherId,initials,
-    morning:{ pickup:'pending', pickupTime:null, parentApproval:'pending',
-              schoolDrop:'pending', schoolDropTime:null, teacherApproval:'pending' },
-    evening:{ schoolPickup:'pending', schoolPickupTime:null, teacherApproval:'pending',
-              homeDrop:'pending', homeDropTime:null, parentApproval:'pending' },
-    attendance:{
-      p1:{ label:'Period 1 · 08:30', status:null, teacherApproved:false, studentApproved:false },
-      p2:{ label:'Period 2 · 11:15', status:null, teacherApproved:false, studentApproved:false },
-      p3:{ label:'Period 3 · 02:00', status:null, teacherApproved:false, studentApproved:false },
+
+async function fetchDashboardData(schoolId, role, userId) {
+  console.log("Fetching live data for role:", role);
+  
+  try {
+    // 1. Fetch Buses for this school
+    const { data: buses } = await supabaseClient
+      .from('buses')
+      .select('*')
+      .eq('school_id', schoolId);
+    liveData.buses = buses || [];
+
+    // 2. Fetch Students
+    // If it's a driver, we only want students on their bus. If admin, get all.
+    let studentQuery = supabaseClient.from('students').select('*').eq('school_id', schoolId);
+    if (role === 'driver') {
+      const myBus = liveData.buses.find(b => b.driver_id === userId);
+      if (myBus) studentQuery = studentQuery.eq('bus_id', myBus.id);
+    } else if (role === 'parent') {
+      studentQuery = studentQuery.eq('parent_id', userId);
+    } else if (role === 'teacher') {
+      studentQuery = studentQuery.eq('teacher_id', userId);
     }
-  };
+    
+    const { data: students } = await studentQuery;
+    liveData.students = students || [];
+
+    // 3. Fetch Today's Transit Logs for those students
+    if (liveData.students.length > 0) {
+      const studentIds = liveData.students.map(s => s.id);
+      
+      const { data: logs } = await supabaseClient
+        .from('transit_logs')
+        .select('*')
+        .in('student_id', studentIds)
+        .eq('date', new Date().toISOString().split('T')[0]); // Only today's logs
+        
+      liveData.transitLogs = logs || [];
+    }
+
+    console.log("Data successfully loaded:", liveData);
+    
+  } catch (error) {
+    console.error("Error fetching dashboard data:", error);
+  }
 }
 
 let state = { role:null, userId:null, tab:null };
@@ -1292,11 +1284,15 @@ async function checkUserSession() {
       // 4. Update the app state with the real data from Supabase
       state.userId = profile.id;
       state.role = profile.role;
-      state.tab = defaultTab(state.role); // Sets their starting tab (e.g., 'route' for driver)
+      state.schoolId = profile.school_id;
+      state.tab = defaultTab(state.role); 
       
       console.log("Welcome back:", profile.full_name, "— Role:", profile.role);
       
-      // 5. Render the sidebar and the main dashboard
+      // 5. Fetch the live data before rendering the screen
+      await fetchDashboardData(state.schoolId, state.role, state.userId);
+      
+      // 6. Render the sidebar and the main dashboard
       renderShell();
     } else {
       console.error("Profile not found for this user.");
