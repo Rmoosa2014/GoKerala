@@ -482,17 +482,6 @@ function mkStudent(id,name,cls,busId,parentId,teacherId,initials){
   };
 }
 
-const ROLES = [
-  { id:'super_admin',       icon:'🏢', label:'Super Admin',       title:'School Board / Controller' },
-  { id:'admin',             icon:'◎', label:'School Admin',      title:'Principal / Admin' },
-  { id:'transport_manager', icon:'🚚', label:'Transport Manager', title:'Fleet & Operations Manager' },
-  { id:'driver',            icon:'🚌', label:'Driver',           title:'Bus Driver' },
-  { id:'teacher',           icon:'✎', label:'Teacher',          title:'Class Teacher' },
-  { id:'parent',            icon:'⌂', label:'Parent',           title:'Parent / Guardian' },
-  { id:'student',           icon:'●', label:'Student',          title:'Student' },
-  { id:'pta',               icon:'👥', label:'PTA Member',       title:'Parent-Teacher Association' },
-];
-
 let state = { role:null, userId:null, tab:null };
 let mapTick = 0;
 async function handleSupabaseLogin() {
