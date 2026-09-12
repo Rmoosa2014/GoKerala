@@ -519,19 +519,19 @@ async function doLogout() {
   await supabaseClient.auth.signOut();
   
   // 2. Clear local state
-  state = { role:null, userId:null, tab:null };
+  state = { role:null, userId:null, tab:null, schoolId:null };
   
-  // 3. Update the UI back to the login screen
+  // 3. Update the UI back to the main login wrapper
   document.getElementById('app-screen').classList.remove('show');
   document.getElementById('login-screen').style.display = 'flex';
   
-  // 4. Clear the input fields
-  document.getElementById('login-email').value = '';
-  document.getElementById('login-password').value = '';
+  // 4. Reset the internal view back to the role selection grid!
+  showRoleSelection();
+  
+  // 5. Reset the login button state (the text inputs are already cleared by showRoleSelection)
   document.getElementById('login-btn').innerText = 'Log in →';
   document.getElementById('login-btn').disabled = false;
 }
-
 function defaultTab(role){
   return { 
     super_admin: 'schools', 
@@ -548,16 +548,10 @@ function defaultTab(role){
    HELPERS
    ============================================================ */
 function now(){ const d=new Date(); return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
-function student(id){ return DB.students.find(s=>s.id===id); }
-function bus(id){ return DB.buses.find(b=>b.id===id); }
-function driver(id){ return DB.drivers.find(d=>d.id===id); }
-function teacher(id){ return DB.teachers.find(t=>t.id===id); }
-function parent(id){ return DB.parents.find(p=>p.id===id); }
-function currentParent(){ return DB.parents.find(p=>p.id===state.userId); }
-function currentTeacher(){ return DB.teachers.find(t=>t.id===state.userId); }
-function currentDriver(){ return DB.drivers.find(d=>d.id===state.userId); }
-function studentsForTeacher(tid){ const t=teacher(tid); return DB.students.filter(s=>t.classes.includes(s.cls)); }
-function studentsForBus(bid){ return DB.students.filter(s=>s.busId===bid); }
+
+// Updated helpers to read from liveData instead of DB
+function student(id){ return liveData.students.find(s=>s.id===id); }
+function bus(id){ return liveData.buses.find(b=>b.id===id) || { name: 'Unassigned Bus' }; }
 function badge(text, cls){ return `<span class="badge ${cls}"><span class="d"></span>${text}</span>`; }
 
 /* ============================================================
@@ -746,10 +740,11 @@ function renderMain(){
 }
 function greeting(){
   if(state.role==='admin') return 'School Overview';
-  if(state.role==='driver') return `Route check-in, ${driver(state.userId).name.split(' ')[0]}`;
-  if(state.role==='parent') return `Hello, ${parent(state.userId).name.split(' ')[0]}`;
-  if(state.role==='teacher') return `Good day, ${teacher(state.userId).name.split(' ')[0]}`;
-  if(state.role==='student') return `Hi, ${student(state.userId).name.split(' ')[0]}`;
+  if(state.role==='driver') return 'My Route Check-in';
+  if(state.role==='parent') return 'My Children';
+  if(state.role==='teacher') return 'Class Roster';
+  if(state.role==='student') return 'My Day';
+  return 'Dashboard';
 }
 function todayStr(){ return new Date().toLocaleDateString([], {weekday:'long', month:'long', day:'numeric'}); }
 
@@ -795,38 +790,46 @@ function adminTab(){
   if(state.tab==='map') return fleetMapBlock();
 }
 function adminOverview(){
-  const total = DB.students.length;
-  const morningDone = DB.students.filter(s=>s.morning.teacherApproval==='approved').length;
-  const eveningDone = DB.students.filter(s=>s.evening.parentApproval==='approved').length;
-  const pendingApprovals = DB.students.reduce((n,s)=>{
-    let c=0;
-    if(s.morning.pickup==='done' && s.morning.parentApproval!=='approved') c++;
-    if(s.morning.schoolDrop==='done' && s.morning.teacherApproval!=='approved') c++;
-    if(s.evening.schoolPickup==='done' && s.evening.teacherApproval!=='approved') c++;
-    if(s.evening.homeDrop==='done' && s.evening.parentApproval!=='approved') c++;
-    return n+c;
-  },0);
+  const total = liveData.students.length;
+  
+  // Calculate stats based on real transit logs from Supabase
+  const morningDone = liveData.transitLogs.filter(log => log.event_type === 'school_drop').length;
+  const eveningDone = liveData.transitLogs.filter(log => log.event_type === 'home_drop').length;
+  
   return `
-    <div class="grid g4" style="margin-bottom:22px;">
-      <div class="card stat-card"><div class="label">Total Students</div><div class="value">${total}</div><div class="sub">across ${DB.buses.length} buses, 2 classes</div></div>
-      <div class="card stat-card"><div class="label">Morning arrivals confirmed</div><div class="value">${morningDone}/${total}</div><div class="sub">teacher-approved at school</div></div>
-      <div class="card stat-card"><div class="label">Evening drop-offs confirmed</div><div class="value">${eveningDone}/${total}</div><div class="sub">parent-approved at home</div></div>
-      <div class="card stat-card"><div class="label">Awaiting approval</div><div class="value" style="color:${pendingApprovals?'#9A6400':'#149E77'}">${pendingApprovals}</div><div class="sub">steps stuck in someone's queue</div></div>
+    <div class="grid g3" style="margin-bottom:22px;">
+      <div class="card stat-card"><div class="label">Total Students</div><div class="value">${total}</div><div class="sub">across ${liveData.buses.length} buses</div></div>
+      <div class="card stat-card"><div class="label">Morning arrivals</div><div class="value">${morningDone}/${total}</div><div class="sub">dropped at school today</div></div>
+      <div class="card stat-card"><div class="label">Evening drop-offs</div><div class="value">${eveningDone}/${total}</div><div class="sub">dropped at home today</div></div>
     </div>
+    
     <div class="card card-pad">
       <div class="section-title"><h3>Every student, at a glance</h3><span class="count">${todayStr()}</span></div>
       <table>
-        <tr><th>Student</th><th>Bus</th><th>Morning</th><th>School arrival</th><th>School pickup (PM)</th><th>Home drop</th><th>Attendance</th></tr>
-        ${DB.students.map(s=>`
-          <tr>
-            <td class="row-flex"><span class="avatar">${s.initials}</span><div><div class="stu-name">${s.name}</div><div class="stu-sub">${s.cls}</div></div></td>
-            <td class="mono" style="font-size:12px;">${bus(s.busId).name}</td>
-            <td>${simpleBadge(s.morning.pickup==='done')}</td>
-            <td>${simpleBadge(s.morning.teacherApproval==='approved')}</td>
-            <td>${simpleBadge(s.evening.schoolPickup==='done')}</td>
-            <td>${simpleBadge(s.evening.parentApproval==='approved')}</td>
-            <td>${attendanceMiniSummary(s)}</td>
-          </tr>`).join('')}
+        <tr><th>Student</th><th>Class</th><th>Bus</th><th>Today's Status</th></tr>
+        ${liveData.students.length === 0 ? `<tr><td colspan="4" class="empty">No students found for this school yet.</td></tr>` : 
+          liveData.students.map(s => {
+            const sBus = bus(s.bus_id);
+            
+            // Find the latest log for this student today
+            const sLogs = liveData.transitLogs.filter(l => l.student_id === s.id);
+            const lastLog = sLogs.length > 0 ? sLogs[sLogs.length - 1].event_type : 'Not started';
+            
+            // Format the text nicely
+            const statusText = lastLog === 'Not started' ? 'Pending' : lastLog.replace('_', ' ').toUpperCase();
+            const statusClass = lastLog === 'Not started' ? 'pending' : 'done';
+            
+            return `
+            <tr>
+              <td class="row-flex">
+                <span class="avatar">${s.name.substring(0,2).toUpperCase()}</span>
+                <div class="stu-name">${s.name}</div>
+              </td>
+              <td>${s.class_name}</td>
+              <td class="mono" style="font-size:12px;">${sBus.name}</td>
+              <td>${badge(statusText, statusClass)}</td>
+            </tr>`;
+        }).join('')}
       </table>
     </div>
   `;
