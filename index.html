@@ -453,30 +453,34 @@ async function fetchDashboardData(schoolId, role, userId) {
     const { data: students } = await studentQuery;
     liveData.students = students || [];
 
-    // 3. Fetch Today's Transit Logs
+    // 3, 4 & 5. Fetch Today's Logs, Attendance, and Approvals
     if (liveData.students.length > 0) {
       const studentIds = liveData.students.map(s => s.id);
+      const today = new Date().toISOString().split('T')[0];
       
+      // Fetch Transit Logs
       const { data: logs } = await supabaseClient
         .from('transit_logs')
         .select('*')
         .in('student_id', studentIds)
-        .eq('date', new Date().toISOString().split('T')[0]);
-        
+        .eq('date', today);
       liveData.transitLogs = logs || [];
-    }
 
-    // 4. Fetch Today's Attendance (THIS IS WHERE IT BELONGS!)
-    if (liveData.students.length > 0) {
-      const studentIds = liveData.students.map(s => s.id);
-      
+      // Fetch Attendance
       const { data: att } = await supabaseClient
         .from('attendance')
         .select('*')
         .in('student_id', studentIds)
-        .eq('date', new Date().toISOString().split('T')[0]);
-        
+        .eq('date', today);
       liveData.attendance = att || [];
+
+      // Fetch Transit Approvals
+      const { data: approvals } = await supabaseClient
+        .from('transit_approvals')
+        .select('*')
+        .in('student_id', studentIds)
+        .eq('date', today);
+      liveData.transitApprovals = approvals || [];
     }
 
     console.log("Data successfully loaded:", liveData);
@@ -973,13 +977,15 @@ function teacherRoster(){
       ${list.map(s => {
         const sBus = bus(s.bus_id);
         const sLogs = liveData.transitLogs.filter(l => l.student_id === s.id);
+        const sApprovals = (liveData.transitApprovals || []).filter(a => a.student_id === s.id);
         
         // Driver actions
         const driverMorningDrop = sLogs.some(l => l.event_type === 'school_drop');
         const driverEveningPickup = sLogs.some(l => l.event_type === 'school_pickup');
         
-        // (In a full implementation, we would check the transit_approvals table here. 
-        // For now, we will focus purely on the driver's side of the UI to get it rendering)
+        // Teacher approvals
+        const teacherApprovedMorning = sApprovals.some(a => a.event_type === 'school_drop' && a.approved_by_role === 'teacher');
+        const teacherApprovedEvening = sApprovals.some(a => a.event_type === 'school_pickup' && a.approved_by_role === 'teacher');
 
         return `
         <div class="card card-pad">
@@ -989,13 +995,13 @@ function teacherRoster(){
           <div class="stu-sub" style="margin:0 0 4px; font-weight:600; color:var(--sub);">MORNING ARRIVAL</div>
           ${stepper([
             { label: 'Driver dropped', state: driverMorningDrop ? 'done' : 'pending' },
-            { label: 'Teacher confirms', state: driverMorningDrop ? 'active' : 'locked', action: driverMorningDrop ? {label: 'Approve', fn: `alert('Approval logic coming next!')`} : null }
+            { label: 'Teacher confirms', state: teacherApprovedMorning ? 'done' : (driverMorningDrop ? 'active' : 'locked'), action: teacherApprovedMorning ? null : (driverMorningDrop ? {label: 'Approve', fn: `logApproval('${s.id}', 'school_drop', 'teacher')`} : null) }
           ])}
           
           <div class="stu-sub" style="margin:10px 0 4px; font-weight:600; color:var(--sub);">AFTERNOON DEPARTURE</div>
            ${stepper([
             { label: 'Driver picked up', state: driverEveningPickup ? 'done' : 'pending' },
-            { label: 'Teacher confirms', state: driverEveningPickup ? 'active' : 'locked', action: driverEveningPickup ? {label: 'Approve', fn: `alert('Approval logic coming next!')`} : null }
+            { label: 'Teacher confirms', state: teacherApprovedEvening ? 'done' : (driverEveningPickup ? 'active' : 'locked'), action: teacherApprovedEvening ? null : (driverEveningPickup ? {label: 'Approve', fn: `logApproval('${s.id}', 'school_pickup', 'teacher')`} : null) }
           ])}
         </div>
       `}).join('')}
@@ -1061,6 +1067,26 @@ async function logAttendance(studentId, period, status) {
   }
 }
 
+// Save a transit approval to Supabase
+async function logApproval(studentId, eventType, role) {
+  const { error } = await supabaseClient
+    .from('transit_approvals')
+    .insert([{
+      student_id: studentId,
+      event_type: eventType,
+      approved_by_role: role,
+      approved_by_user: state.userId,
+      date: new Date().toISOString().split('T')[0]
+    }]);
+  
+  if (error) {
+    alert("Error saving approval: " + error.message);
+  } else {
+    // Fetch fresh data and redraw the screen to show the checkmark
+    await fetchDashboardData(state.schoolId, state.role, state.userId);
+    renderMain();
+  }
+}
 
 /* ============================================================
    STUDENT
