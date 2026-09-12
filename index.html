@@ -554,22 +554,78 @@ function student(id){ return liveData.students.find(s=>s.id===id); }
 function bus(id){ return liveData.buses.find(b=>b.id===id) || { name: 'Unassigned Bus' }; }
 function badge(text, cls){ return `<span class="badge ${cls}"><span class="d"></span>${text}</span>`; }
 
-/* ============================================================
-   ACTIONS — the approval chain
-   ============================================================ */
-function driverMarkPickup(sid){ const s=student(sid); s.morning.pickup='done'; s.morning.pickupTime=now(); refresh(); }
-function parentApprovePickup(sid){ const s=student(sid); s.morning.parentApproval='approved'; refresh(); }
-function driverMarkSchoolDrop(sid){ const s=student(sid); s.morning.schoolDrop='done'; s.morning.schoolDropTime=now(); refresh(); }
-function teacherApproveSchoolDrop(sid){ const s=student(sid); s.morning.teacherApproval='approved'; refresh(); }
+function driverTab(){
+  // Find this driver's specific bus
+  const myBus = liveData.buses.find(b => b.driver_id === state.userId);
+  
+  if (!myBus) {
+    return `<div class="empty">No bus assigned to your account. Please contact the administrator.</div>`;
+  }
 
-function driverMarkSchoolPickup(sid){ const s=student(sid); s.evening.schoolPickup='done'; s.evening.schoolPickupTime=now(); refresh(); }
-function teacherApproveSchoolPickup(sid){ const s=student(sid); s.evening.teacherApproval='approved'; refresh(); }
-function driverMarkHomeDrop(sid){ const s=student(sid); s.evening.homeDrop='done'; s.evening.homeDropTime=now(); refresh(); }
-function parentApproveHomeDrop(sid){ const s=student(sid); s.evening.parentApproval='approved'; refresh(); }
+  // The students are already filtered for this driver's bus in our fetcher
+  const list = liveData.students;
+  
+  if (list.length === 0) {
+    return `<div class="empty">No students assigned to your route yet.</div>`;
+  }
 
-function teacherSetAttendance(sid, period, value){ student(sid).attendance[period].status=value; refresh(); }
-function teacherApproveAttendance(sid, period){ student(sid).attendance[period].teacherApproved=true; refresh(); }
-function studentApproveAttendance(sid, period){ student(sid).attendance[period].studentApproved=true; refresh(); }
+  return `
+    <div class="flow-note">🚌 ${myBus.name} — Mark each stop as it happens. The data instantly syncs to the school and parents.</div>
+    <div class="grid g2">
+      ${list.map(s => {
+        // Find today's logs for this specific student from Supabase
+        const sLogs = liveData.transitLogs.filter(l => l.student_id === s.id);
+        
+        // Check which steps are already saved in the database today
+        const hasMorningPickup = sLogs.some(l => l.event_type === 'morning_pickup');
+        const hasSchoolDrop = sLogs.some(l => l.event_type === 'school_drop');
+        const hasSchoolPickup = sLogs.some(l => l.event_type === 'school_pickup');
+        const hasHomeDrop = sLogs.some(l => l.event_type === 'home_drop');
+
+        return `
+        <div class="card card-pad">
+          <div class="section-title"><h3 class="row-flex"><span class="avatar">${s.name.substring(0,2).toUpperCase()}</span>${s.name}</h3></div>
+          <div class="stu-sub" style="margin:-8px 0 6px 39px;">${s.class_name}</div>
+          
+          <div class="stu-sub" style="margin:10px 0 4px; font-weight:600; color:var(--sub);">MORNING</div>
+          ${stepper([
+            { label: 'Picked up', state: hasMorningPickup ? 'done' : 'active', action: hasMorningPickup ? null : { label: 'Mark picked up', fn: `logTransit('${s.id}', 'morning_pickup')` } },
+            { label: 'Dropped at school', state: hasSchoolDrop ? 'done' : (hasMorningPickup ? 'active' : 'locked'), action: hasSchoolDrop ? null : { label: 'Mark dropped', fn: `logTransit('${s.id}', 'school_drop')` } }
+          ])}
+          
+          <div class="stu-sub" style="margin:16px 0 4px; font-weight:600; color:var(--sub);">EVENING</div>
+          ${stepper([
+            { label: 'Picked up from school', state: hasSchoolPickup ? 'done' : (hasSchoolDrop ? 'active' : 'locked'), action: hasSchoolPickup ? null : { label: 'Mark picked up', fn: `logTransit('${s.id}', 'school_pickup')` } },
+            { label: 'Dropped at home', state: hasHomeDrop ? 'done' : (hasSchoolPickup ? 'active' : 'locked'), action: hasHomeDrop ? null : { label: 'Mark dropped', fn: `logTransit('${s.id}', 'home_drop')` } }
+          ])}
+        </div>
+      `}).join('')}
+    </div>
+  `;
+}
+
+// This replaces all the old mock action functions
+async function logTransit(studentId, eventType) {
+  // 1. Insert the log into Supabase
+  const { error } = await supabaseClient
+    .from('transit_logs')
+    .insert([{
+      student_id: studentId,
+      event_type: eventType,
+      recorded_by: state.userId,
+      status: 'done' // Defaulting to done when the driver clicks it
+    }]);
+  
+  if (error) {
+    alert("Error saving log: " + error.message);
+  } else {
+    // 2. Fetch the fresh data from Supabase so the UI updates
+    await fetchDashboardData(state.schoolId, state.role, state.userId);
+    // 3. Re-render the screen to show the checkmark!
+    renderMain();
+  }
+}
+
 // Maintenance Actions
 function submitMaintenanceRequest(busId, driverId, category, severity, description){
   const newReq = {
@@ -628,32 +684,7 @@ function stepper(steps){
     </div>`).join('')}</div>`;
 }
 
-function morningSteps(s, viewer){
-  const m = s.morning;
-  const st1 = m.pickup==='done' ? 'done' : (viewer==='driver' ? 'active':'locked');
-  const st2 = m.parentApproval==='approved' ? 'done' : (m.pickup==='done' && viewer==='parent' ? 'active':'locked');
-  const st3 = m.schoolDrop==='done' ? 'done' : (m.parentApproval==='approved' && viewer==='driver' ? 'active':'locked');
-  const st4 = m.teacherApproval==='approved' ? 'done' : (m.schoolDrop==='done' && viewer==='teacher' ? 'active':'locked');
-  return stepper([
-    { label:'Picked up', state:st1, time:m.pickupTime, action: viewer==='driver' ? {label:'Mark picked up', fn:`driverMarkPickup('${s.id}')`} : null },
-    { label:'Parent confirms', state:st2, action: viewer==='parent' ? {label:'Approve', fn:`parentApprovePickup('${s.id}')`} : null },
-    { label:'Dropped at school', state:st3, time:m.schoolDropTime, action: viewer==='driver' ? {label:'Mark dropped', fn:`driverMarkSchoolDrop('${s.id}')`} : null },
-    { label:'Teacher confirms', state:st4, action: viewer==='teacher' ? {label:'Approve', fn:`teacherApproveSchoolDrop('${s.id}')`} : null },
-  ]);
-}
-function eveningSteps(s, viewer){
-  const e = s.evening;
-  const st1 = e.schoolPickup==='done' ? 'done' : (viewer==='driver' ? 'active':'locked');
-  const st2 = e.teacherApproval==='approved' ? 'done' : (e.schoolPickup==='done' && viewer==='teacher' ? 'active':'locked');
-  const st3 = e.homeDrop==='done' ? 'done' : (e.teacherApproval==='approved' && viewer==='driver' ? 'active':'locked');
-  const st4 = e.parentApproval==='approved' ? 'done' : (e.homeDrop==='done' && viewer==='parent' ? 'active':'locked');
-  return stepper([
-    { label:'Picked up from school', state:st1, time:e.schoolPickupTime, action: viewer==='driver' ? {label:'Mark picked up', fn:`driverMarkSchoolPickup('${s.id}')`} : null },
-    { label:'Teacher confirms', state:st2, action: viewer==='teacher' ? {label:'Approve', fn:`teacherApproveSchoolPickup('${s.id}')`} : null },
-    { label:'Dropped at home', state:st3, time:e.homeDropTime, action: viewer==='driver' ? {label:'Mark dropped', fn:`driverMarkHomeDrop('${s.id}')`} : null },
-    { label:'Parent confirms', state:st4, action: viewer==='parent' ? {label:'Approve', fn:`parentApproveHomeDrop('${s.id}')`} : null },
-  ]);
-}
+
 
 function stepStatusText(v){ return v==='approved'||v==='done' ? 'Complete' : 'Pending'; }
 
@@ -871,29 +902,6 @@ function registerCell(s,p){
   return `${badge(a.status,cls)}<div style="font-size:10.5px; color:var(--faint); margin-top:4px;">${t} · ${st}</div>`;
 }
 
-/* ============================================================
-   DRIVER
-   ============================================================ */
-function driverTab(){
-  if(state.tab==='map') return liveMapBlock(currentDriver().busId, true);
-  const b = bus(currentDriver().busId);
-  const list = studentsForBus(b.id);
-  return `
-    <div class="flow-note">🚌 ${b.name} — mark each stop as it happens. The next action unlocks only after the parent or teacher on the other end confirms.</div>
-    <div class="grid g2">
-      ${list.map(s=>`
-        <div class="card card-pad">
-          <div class="section-title"><h3 class="row-flex"><span class="avatar">${s.initials}</span>${s.name}</h3></div>
-          <div class="stu-sub" style="margin:-8px 0 6px 39px;">${s.cls} · ${parent(s.parentId).name}</div>
-          <div class="stu-sub" style="margin:0 0 4px; font-weight:600; color:var(--sub);">MORNING</div>
-          ${morningSteps(s,'driver')}
-          <div class="stu-sub" style="margin:10px 0 4px; font-weight:600; color:var(--sub);">EVENING</div>
-          ${eveningSteps(s,'driver')}
-        </div>
-      `).join('')}
-    </div>
-  `;
-}
 
 /* ============================================================
    PARENT
