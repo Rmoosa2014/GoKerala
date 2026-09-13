@@ -592,14 +592,14 @@ function driverTab(){
           
           <div class="stu-sub" style="margin:10px 0 4px; font-weight:600; color:var(--sub);">MORNING</div>
           ${stepper([
-            { label: 'Picked up', state: hasMorningPickup ? 'done' : 'active', action: hasMorningPickup ? null : { label: 'Mark picked up', fn: `logTransit('${s.id}', 'morning_pickup')` } },
-            { label: 'Dropped at school', state: hasSchoolDrop ? 'done' : (hasMorningPickup ? 'active' : 'locked'), action: hasSchoolDrop ? null : { label: 'Mark dropped', fn: `logTransit('${s.id}', 'school_drop')` } }
+            { label: 'Picked up', state: hasMorningPickup ? 'done' : 'active', action: hasMorningPickup ? { label: 'Undo', fn: `undoTransit('${s.id}', 'morning_pickup')` } : { label: 'Mark picked up', fn: `logTransit('${s.id}', 'morning_pickup')` } },
+            { label: 'Dropped at school', state: hasSchoolDrop ? 'done' : (hasMorningPickup ? 'active' : 'locked'), action: hasSchoolDrop ? { label: 'Undo', fn: `undoTransit('${s.id}', 'school_drop')` } : (hasMorningPickup ? { label: 'Mark dropped', fn: `logTransit('${s.id}', 'school_drop')` } : null) }
           ])}
           
           <div class="stu-sub" style="margin:16px 0 4px; font-weight:600; color:var(--sub);">EVENING</div>
           ${stepper([
-            { label: 'Picked up from school', state: hasSchoolPickup ? 'done' : (hasSchoolDrop ? 'active' : 'locked'), action: hasSchoolPickup ? null : { label: 'Mark picked up', fn: `logTransit('${s.id}', 'school_pickup')` } },
-            { label: 'Dropped at home', state: hasHomeDrop ? 'done' : (hasSchoolPickup ? 'active' : 'locked'), action: hasHomeDrop ? null : { label: 'Mark dropped', fn: `logTransit('${s.id}', 'home_drop')` } }
+            { label: 'Picked up from school', state: hasSchoolPickup ? 'done' : (hasSchoolDrop ? 'active' : 'locked'), action: hasSchoolPickup ? { label: 'Undo', fn: `undoTransit('${s.id}', 'school_pickup')` } : (hasSchoolDrop ? { label: 'Mark picked up', fn: `logTransit('${s.id}', 'school_pickup')` } : null) },
+            { label: 'Dropped at home', state: hasHomeDrop ? 'done' : (hasSchoolPickup ? 'active' : 'locked'), action: hasHomeDrop ? { label: 'Undo', fn: `undoTransit('${s.id}', 'home_drop')` } : (hasSchoolPickup ? { label: 'Mark dropped', fn: `logTransit('${s.id}', 'home_drop')` } : null) }
           ])}
         </div>
       `}).join('')}
@@ -676,14 +676,13 @@ function refresh(){ renderMain(); }
    TRANSIT STEPPER — signature component
    ============================================================ */
 function stepper(steps){
-  // steps: [{label, state:'done'|'active'|'locked', time, action:{label,fn}}]
   return `<div class="stepper">${steps.map((st,i)=>`
     <div class="step">
       <div class="rail ${st.state==='done' ? 'filled':''}"></div>
       <div class="node ${st.state}">${st.state==='done' ? '✓' : (i+1)}</div>
       <div class="label">${st.label}</div>
       ${st.time ? `<div class="time">${st.time}</div>` : ''}
-      ${st.action ? `<div class="act"><button class="mini-btn ${st.state==='active'?'amber':'ghost'}" ${st.state!=='active'?'disabled':''} onclick="${st.action.fn}">${st.action.label}</button></div>` : ''}
+      ${st.action ? `<div class="act"><button class="mini-btn ${st.state==='active'?'amber':'ghost'}" ${(st.state==='locked' || st.state==='pending')?'disabled':''} onclick="${st.action.fn}">${st.action.label}</button></div>` : ''}
     </div>`).join('')}</div>`;
 }
 
@@ -910,28 +909,27 @@ function registerCell(s,p){
    PARENT
    ============================================================ */
 function parentTab(){
-  // Route to the correct sub-tab
   if (state.tab === 'attendance') return parentAttendance(liveData.students);
   if (state.tab === 'map') return liveMapBlock(liveData.students[0]?.bus_id, false, liveData.students[0]);
 
   const list = liveData.students;
-  
-  if (list.length === 0) {
-    return `<div class="empty">No children currently assigned to your account.</div>`;
-  }
+  if (list.length === 0) return `<div class="empty">No children currently assigned to your account.</div>`;
 
   return list.map(s => {
     const sBus = bus(s.bus_id);
     const sLogs = liveData.transitLogs.filter(l => l.student_id === s.id);
     const sApprovals = (liveData.transitApprovals || []).filter(a => a.student_id === s.id);
     
-    // Check Driver actions
-    const driverMorningPickup = sLogs.some(l => l.event_type === 'morning_pickup');
-    const driverHomeDrop = sLogs.some(l => l.event_type === 'home_drop');
+    // Status Checks
+    const dMornPick = sLogs.some(l => l.event_type === 'morning_pickup');
+    const dMornDrop = sLogs.some(l => l.event_type === 'school_drop');
+    const dEvePick = sLogs.some(l => l.event_type === 'school_pickup');
+    const dEveDrop = sLogs.some(l => l.event_type === 'home_drop');
     
-    // Check Parent approvals
-    const parentApprovedMorning = sApprovals.some(a => a.event_type === 'morning_pickup' && a.approved_by_role === 'parent');
-    const parentApprovedEvening = sApprovals.some(a => a.event_type === 'home_drop' && a.approved_by_role === 'parent');
+    const pMorn = sApprovals.some(a => a.event_type === 'morning_pickup' && a.approved_by_role === 'parent');
+    const pEve = sApprovals.some(a => a.event_type === 'home_drop' && a.approved_by_role === 'parent');
+    const tMorn = sApprovals.some(a => a.event_type === 'school_drop' && a.approved_by_role === 'teacher');
+    const tEve = sApprovals.some(a => a.event_type === 'school_pickup' && a.approved_by_role === 'teacher');
 
     return `
     <div class="card card-pad" style="margin-bottom:18px;">
@@ -940,21 +938,24 @@ function parentTab(){
         <span class="count">${s.class_name} · ${sBus.name}</span>
       </div>
       
-      <div class="stu-sub" style="margin:0 0 4px; font-weight:600; color:var(--sub);">MORNING PICKUP</div>
+      <div class="stu-sub" style="margin:0 0 4px; font-weight:600; color:var(--sub);">MORNING: HOME TO SCHOOL</div>
       ${stepper([
-        { label: 'Driver picked up', state: driverMorningPickup ? 'done' : 'pending' },
-        { label: 'Parent confirms', state: parentApprovedMorning ? 'done' : (driverMorningPickup ? 'active' : 'locked'), action: parentApprovedMorning ? null : (driverMorningPickup ? {label: 'Approve', fn: `logApproval('${s.id}', 'morning_pickup', 'parent')`} : null) }
+        { label: 'Driver picked up', state: dMornPick ? 'done' : 'pending' },
+        { label: 'Parent confirms', state: pMorn ? 'done' : (dMornPick ? 'active' : 'locked'), action: pMorn ? { label: 'Undo', fn: `undoApproval('${s.id}', 'morning_pickup', 'parent')` } : (dMornPick ? { label: 'Approve', fn: `logApproval('${s.id}', 'morning_pickup', 'parent')` } : null) },
+        { label: 'Driver dropped', state: dMornDrop ? 'done' : (pMorn ? 'pending' : 'locked') },
+        { label: 'Teacher confirms', state: tMorn ? 'done' : (dMornDrop ? 'pending' : 'locked') }
       ])}
       
-      <div class="stu-sub" style="margin:14px 0 4px; font-weight:600; color:var(--sub);">EVENING HOME DROP-OFF</div>
+      <div class="stu-sub" style="margin:14px 0 4px; font-weight:600; color:var(--sub);">EVENING: SCHOOL TO HOME</div>
       ${stepper([
-        { label: 'Driver dropped at home', state: driverHomeDrop ? 'done' : 'pending' },
-        { label: 'Parent confirms', state: parentApprovedEvening ? 'done' : (driverHomeDrop ? 'active' : 'locked'), action: parentApprovedEvening ? null : (driverHomeDrop ? {label: 'Approve', fn: `logApproval('${s.id}', 'home_drop', 'parent')`} : null) }
+        { label: 'Driver picked up', state: dEvePick ? 'done' : 'pending' },
+        { label: 'Teacher confirms', state: tEve ? 'done' : (dEvePick ? 'pending' : 'locked') },
+        { label: 'Driver dropped', state: dEveDrop ? 'done' : (tEve ? 'pending' : 'locked') },
+        { label: 'Parent confirms', state: pEve ? 'done' : (dEveDrop ? 'active' : 'locked'), action: pEve ? { label: 'Undo', fn: `undoApproval('${s.id}', 'home_drop', 'parent')` } : (dEveDrop ? { label: 'Approve', fn: `logApproval('${s.id}', 'home_drop', 'parent')` } : null) }
       ])}
     </div>
   `}).join('');
 }
-
 function parentAttendance(kids){
   if(kids.length === 0) return `<div class="empty">No attendance data available.</div>`;
   
@@ -987,10 +988,7 @@ function teacherTab(){
 
 function teacherRoster(){
   const list = liveData.students;
-  
-  if (list.length === 0) {
-    return `<div class="empty">No students assigned to your class yet.</div>`;
-  }
+  if (list.length === 0) return `<div class="empty">No students assigned to your class yet.</div>`;
 
   return `
     <div class="flow-note">✎ Confirm students as they arrive in the morning and leave in the afternoon — this closes the loop the driver opened.</div>
@@ -1000,29 +998,36 @@ function teacherRoster(){
         const sLogs = liveData.transitLogs.filter(l => l.student_id === s.id);
         const sApprovals = (liveData.transitApprovals || []).filter(a => a.student_id === s.id);
         
-        // Driver actions
-        const driverMorningDrop = sLogs.some(l => l.event_type === 'school_drop');
-        const driverEveningPickup = sLogs.some(l => l.event_type === 'school_pickup');
+        // Status Checks
+        const dMornPick = sLogs.some(l => l.event_type === 'morning_pickup');
+        const dMornDrop = sLogs.some(l => l.event_type === 'school_drop');
+        const dEvePick = sLogs.some(l => l.event_type === 'school_pickup');
+        const dEveDrop = sLogs.some(l => l.event_type === 'home_drop');
         
-        // Teacher approvals
-        const teacherApprovedMorning = sApprovals.some(a => a.event_type === 'school_drop' && a.approved_by_role === 'teacher');
-        const teacherApprovedEvening = sApprovals.some(a => a.event_type === 'school_pickup' && a.approved_by_role === 'teacher');
+        const pMorn = sApprovals.some(a => a.event_type === 'morning_pickup' && a.approved_by_role === 'parent');
+        const pEve = sApprovals.some(a => a.event_type === 'home_drop' && a.approved_by_role === 'parent');
+        const tMorn = sApprovals.some(a => a.event_type === 'school_drop' && a.approved_by_role === 'teacher');
+        const tEve = sApprovals.some(a => a.event_type === 'school_pickup' && a.approved_by_role === 'teacher');
 
         return `
         <div class="card card-pad">
           <div class="section-title"><h3 class="row-flex"><span class="avatar">${s.name.substring(0,2).toUpperCase()}</span>${s.name}</h3></div>
           <div class="stu-sub" style="margin:-8px 0 6px 39px;">${sBus.name}</div>
           
-          <div class="stu-sub" style="margin:0 0 4px; font-weight:600; color:var(--sub);">MORNING ARRIVAL</div>
+          <div class="stu-sub" style="margin:0 0 4px; font-weight:600; color:var(--sub);">MORNING: HOME TO SCHOOL</div>
           ${stepper([
-            { label: 'Driver dropped', state: driverMorningDrop ? 'done' : 'pending' },
-            { label: 'Teacher confirms', state: teacherApprovedMorning ? 'done' : (driverMorningDrop ? 'active' : 'locked'), action: teacherApprovedMorning ? null : (driverMorningDrop ? {label: 'Approve', fn: `logApproval('${s.id}', 'school_drop', 'teacher')`} : null) }
+            { label: 'Driver picked up', state: dMornPick ? 'done' : 'pending' },
+            { label: 'Parent confirms', state: pMorn ? 'done' : (dMornPick ? 'pending' : 'locked') },
+            { label: 'Driver dropped', state: dMornDrop ? 'done' : (pMorn ? 'pending' : 'locked') },
+            { label: 'Teacher confirms', state: tMorn ? 'done' : (dMornDrop ? 'active' : 'locked'), action: tMorn ? { label: 'Undo', fn: `undoApproval('${s.id}', 'school_drop', 'teacher')` } : (dMornDrop ? { label: 'Approve', fn: `logApproval('${s.id}', 'school_drop', 'teacher')` } : null) }
           ])}
           
-          <div class="stu-sub" style="margin:10px 0 4px; font-weight:600; color:var(--sub);">AFTERNOON DEPARTURE</div>
+          <div class="stu-sub" style="margin:10px 0 4px; font-weight:600; color:var(--sub);">EVENING: SCHOOL TO HOME</div>
            ${stepper([
-            { label: 'Driver picked up', state: driverEveningPickup ? 'done' : 'pending' },
-            { label: 'Teacher confirms', state: teacherApprovedEvening ? 'done' : (driverEveningPickup ? 'active' : 'locked'), action: teacherApprovedEvening ? null : (driverEveningPickup ? {label: 'Approve', fn: `logApproval('${s.id}', 'school_pickup', 'teacher')`} : null) }
+            { label: 'Driver picked up', state: dEvePick ? 'done' : 'pending' },
+            { label: 'Teacher confirms', state: tEve ? 'done' : (dEvePick ? 'active' : 'locked'), action: tEve ? { label: 'Undo', fn: `undoApproval('${s.id}', 'school_pickup', 'teacher')` } : (dEvePick ? { label: 'Approve', fn: `logApproval('${s.id}', 'school_pickup', 'teacher')` } : null) },
+            { label: 'Driver dropped', state: dEveDrop ? 'done' : (tEve ? 'pending' : 'locked') },
+            { label: 'Parent confirms', state: pEve ? 'done' : (dEveDrop ? 'pending' : 'locked') }
           ])}
         </div>
       `}).join('')}
@@ -1105,6 +1110,33 @@ async function logApproval(studentId, eventType, role) {
   } else {
     await fetchDashboardData(state.schoolId, state.role, state.userId);
     renderMain();
+  }
+}
+
+// Undo a driver's transit log
+async function undoTransit(studentId, eventType) {
+  // Find the exact ID of the log we want to delete from our live data
+  const log = liveData.transitLogs.find(l => l.student_id === studentId && l.event_type === eventType);
+  if (!log) return;
+  
+  const { error } = await supabaseClient.from('transit_logs').delete().eq('id', log.id);
+  if (error) {
+    alert("Error undoing log: " + error.message);
+  } else {
+    refreshDataSilently(); // Instantly update the UI
+  }
+}
+
+// Undo a teacher or parent's approval
+async function undoApproval(studentId, eventType, role) {
+  const approval = liveData.transitApprovals.find(a => a.student_id === studentId && a.event_type === eventType && a.approved_by_role === role);
+  if (!approval) return;
+  
+  const { error } = await supabaseClient.from('transit_approvals').delete().eq('id', approval.id);
+  if (error) {
+    alert("Error undoing approval: " + error.message);
+  } else {
+    refreshDataSilently(); // Instantly update the UI
   }
 }
 
@@ -1384,6 +1416,30 @@ function initMap(){
   }
   loop();
 }
+
+/* ============================================================
+   LIVE REAL-TIME SYNC
+   ============================================================ */
+let realtimeChannel = null;
+
+function setupRealtime() {
+  if (realtimeChannel) return; // Prevent creating duplicate listeners
+
+  console.log("Starting real-time sync...");
+  realtimeChannel = supabaseClient.channel('school-transit-updates')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'transit_logs' }, payload => refreshDataSilently())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'transit_approvals' }, payload => refreshDataSilently())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, payload => refreshDataSilently())
+    .subscribe();
+}
+
+async function refreshDataSilently() {
+  if(state.userId) {
+    console.log("Live update received! Refreshing dashboard...");
+    await fetchDashboardData(state.schoolId, state.role, state.userId);
+    renderMain();
+  }
+}
 // Check if the user is logged in and fetch their role from the database
 async function checkUserSession() {
   // 1. Ask Supabase if there is an active login session
@@ -1415,6 +1471,7 @@ async function checkUserSession() {
       
       // 6. Render the sidebar and the main dashboard
       renderShell();
+	setupRealtime();
     } else {
       console.error("Profile not found for this user.");
       alert("Your account is created but pending setup by the school administrator.");
