@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -872,9 +871,9 @@ function adminOverview(){
   const morningDone = liveData.transitLogs.filter(log => log.event_type === 'school_drop').length;
   const eveningDone = liveData.transitLogs.filter(log => log.event_type === 'home_drop').length;
   
-  // Extract maintenance and location data
-  const mReqs = liveData.maintenance || [];
-  const lReqs = liveData.locationRequests || [];
+  // UX UPGRADE: Only show actionable/pending items on the Overview!
+  const mReqs = (liveData.maintenance || []).filter(m => m.status !== 'Completed');
+  const lReqs = (liveData.locationRequests || []).filter(r => r.status === 'Pending');
   
   return `
     <div class="grid g3" style="margin-bottom:22px;">
@@ -910,11 +909,11 @@ function adminOverview(){
       </table>
     </div>
 
-    <!-- 2. Admin Ticket Management -->
+    <!-- 2. Admin Ticket Management (Actionable Only) -->
     <div class="grid g2">
       <div class="card card-pad">
-        <div class="section-title"><h3>Vehicle Maintenance Tickets</h3></div>
-        ${mReqs.length === 0 ? `<div class="empty">No maintenance requests at this time.</div>` : `
+        <div class="section-title"><h3>Action Required: Maintenance</h3></div>
+        ${mReqs.length === 0 ? `<div class="empty">All caught up! No active maintenance requests.</div>` : `
           <table style="width:100%; text-align:left; border-collapse: collapse;">
             <tr style="font-size: 12px; color: var(--sub);">
               <th style="padding:8px; border-bottom:1px solid #eee;">BUS / SEVERITY</th>
@@ -928,7 +927,7 @@ function adminOverview(){
               <tr>
                 <td style="padding:12px 8px; border-bottom:1px solid #eee;"><b>${bName}</b><br><span style="font-size:12px; color:var(--sub);">${m.severity}</span></td>
                 <td style="padding:12px 8px; border-bottom:1px solid #eee;">${m.category}<br><span style="font-size:12px; color:var(--sub);">${m.description || ''}</span></td>
-                <td style="padding:12px 8px; border-bottom:1px solid #eee;">${badge(m.status, m.status === 'Completed' ? 'done' : (m.status === 'In Progress' ? 'wait' : 'pending'))}</td>
+                <td style="padding:12px 8px; border-bottom:1px solid #eee;">${badge(m.status, m.status === 'In Progress' ? 'wait' : 'pending')}</td>
                 <td style="padding:12px 8px; border-bottom:1px solid #eee;">
                   ${m.status === 'Pending' ? `<button class="mini-btn amber" onclick="updateMaintenanceStatus('${m.id}', 'In Progress')">Start</button>` : ''}
                   ${m.status === 'In Progress' ? `<button class="mini-btn" style="background:#10b981;color:#fff;border:none;" onclick="updateMaintenanceStatus('${m.id}', 'Completed')">Fix</button>` : ''}
@@ -940,13 +939,12 @@ function adminOverview(){
       </div>
 
       <div class="card card-pad">
-        <div class="section-title"><h3>Parent Stop Change Requests</h3></div>
-        ${lReqs.length === 0 ? `<div class="empty">No pending location requests.</div>` : `
+        <div class="section-title"><h3>Action Required: Stop Changes</h3></div>
+        ${lReqs.length === 0 ? `<div class="empty">All caught up! No pending location requests.</div>` : `
           <table style="width:100%; text-align:left; border-collapse: collapse;">
             <tr style="font-size: 12px; color: var(--sub);">
               <th style="padding:8px; border-bottom:1px solid #eee;">STUDENT</th>
               <th style="padding:8px; border-bottom:1px solid #eee;">REQUESTED STOP</th>
-              <th style="padding:8px; border-bottom:1px solid #eee;">STATUS</th>
               <th style="padding:8px; border-bottom:1px solid #eee;">ACTION</th>
             </tr>
             ${lReqs.map(r => {
@@ -955,12 +953,9 @@ function adminOverview(){
               <tr>
                 <td style="padding:12px 8px; border-bottom:1px solid #eee;"><b>${sName}</b><br><span style="font-size:12px; color:var(--sub);">${r.reason || ''}</span></td>
                 <td style="padding:12px 8px; border-bottom:1px solid #eee;">${r.requested_stop}</td>
-                <td style="padding:12px 8px; border-bottom:1px solid #eee;">${badge(r.status, r.status === 'Approved' ? 'done' : (r.status === 'Rejected' ? 'absent' : 'pending'))}</td>
                 <td style="padding:12px 8px; border-bottom:1px solid #eee;">
-                  ${r.status === 'Pending' ? `
-                    <button class="mini-btn" style="background:#10b981;color:#fff;border:none;margin-bottom:4px;" onclick="resolveLocationRequest('${r.id}', 'Approved')">Approve</button>
-                    <button class="mini-btn ghost" onclick="resolveLocationRequest('${r.id}', 'Rejected')">Reject</button>
-                  ` : ''}
+                  <button class="mini-btn" style="background:#10b981;color:#fff;border:none;margin-bottom:4px;" onclick="resolveLocationRequest('${r.id}', 'Approved')">Approve</button>
+                  <button class="mini-btn ghost" onclick="resolveLocationRequest('${r.id}', 'Rejected')">Reject</button>
                 </td>
               </tr>`
             }).join('')}
@@ -1381,6 +1376,11 @@ function locationRequestsView(){
   const isParent = state.role === 'parent';
   const child = isParent ? liveData.students[0] : null;
 
+  // Security & UI fix: Make sure parents only see their own requests!
+  const myReqs = isParent 
+    ? liveData.locationRequests.filter(r => r.parent_id === state.userId) 
+    : liveData.locationRequests;
+
   return `
     ${isParent ? `
       <div class="card card-pad" style="margin-bottom: 20px;">
@@ -1390,18 +1390,25 @@ function locationRequestsView(){
         <button class="btn-primary" onclick="submitLocationRequest('${child?.id}', '${state.userId}', 'Current Assigned Stop', document.getElementById('lr-stop').value, document.getElementById('lr-reason').value)">Submit</button>
       </div>
     ` : ''}
+    
     <div class="card card-pad">
       <div class="section-title"><h3>Stop Change Requests</h3></div>
-      <table>
-        <tr><th>Requested Stop</th><th>Reason</th><th>Status</th></tr>
-        ${liveData.locationRequests.map(r => `
-          <tr>
-            <td><b>${r.requested_stop}</b></td>
-            <td>${r.reason}</td>
-            <td><span class="badge pending">${r.status}</span></td>
+      ${myReqs.length === 0 ? `<div class="empty">No location requests found.</div>` : `
+        <table style="width:100%; text-align:left; border-collapse: collapse;">
+          <tr style="font-size: 12px; color: var(--sub);">
+            <th style="padding:8px; border-bottom:1px solid #eee;">REQUESTED STOP</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">REASON</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">STATUS</th>
           </tr>
-        `).join('')}
-      </table>
+          ${myReqs.map(r => `
+            <tr>
+              <td style="padding:12px 8px; border-bottom:1px solid #eee;"><b>${r.requested_stop}</b></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #eee;">${r.reason || ''}</td>
+              <td style="padding:12px 8px; border-bottom:1px solid #eee;">${badge(r.status, r.status === 'Approved' ? 'done' : (r.status === 'Rejected' ? 'absent' : 'pending'))}</td>
+            </tr>
+          `).join('')}
+        </table>
+      `}
     </div>
   `;
 }
@@ -1543,6 +1550,8 @@ function setupRealtime() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'transit_logs' }, payload => refreshDataSilently())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'transit_approvals' }, payload => refreshDataSilently())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, payload => refreshDataSilently())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'maintenance_requests' }, payload => refreshDataSilently()) // NEW
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'location_requests' }, payload => refreshDataSilently()) // NEW
     .subscribe();
 }
 
