@@ -707,6 +707,74 @@ async function resolveLocationRequest(id, newStatus){
   else refreshDataSilently();
 }
 
+// --- Maintenance Editing ---
+let editMaintenanceId = null;
+
+function startEditMaintenance(id, cat, sev, desc) {
+  editMaintenanceId = id;
+  document.getElementById('m-cat').value = cat;
+  document.getElementById('m-sev').value = sev;
+  document.getElementById('m-desc').value = desc;
+  
+  const btn = document.getElementById('m-btn');
+  btn.innerText = "Update Request";
+  btn.classList.add("amber"); // Make it visually distinct
+}
+
+async function saveMaintenanceRequest(busId, driverId) {
+  const category = document.getElementById('m-cat').value;
+  const severity = document.getElementById('m-sev').value;
+  const description = document.getElementById('m-desc').value;
+
+  if (editMaintenanceId) {
+    // Update existing
+    const { error } = await supabaseClient.from('maintenance_requests')
+      .update({ category, severity, description }).eq('id', editMaintenanceId);
+    if (error) alert("Error updating: " + error.message);
+  } else {
+    // Insert new
+    if (!busId) return alert("No bus assigned.");
+    const { error } = await supabaseClient.from('maintenance_requests')
+      .insert([{ bus_id: busId, driver_id: driverId, category, severity, description }]);
+    if (error) alert("Error saving: " + error.message);
+  }
+  
+  editMaintenanceId = null;
+  refreshDataSilently();
+}
+
+// --- Location Editing ---
+let editLocationId = null;
+
+function startEditLocation(id, stop, reason) {
+  editLocationId = id;
+  document.getElementById('lr-stop').value = stop;
+  document.getElementById('lr-reason').value = reason;
+  
+  const btn = document.getElementById('lr-btn');
+  btn.innerText = "Update Request";
+  btn.classList.add("amber");
+}
+
+async function saveLocationRequest(studentId, parentId) {
+  const requested_stop = document.getElementById('lr-stop').value;
+  const reason = document.getElementById('lr-reason').value;
+
+  if (editLocationId) {
+    const { error } = await supabaseClient.from('location_requests')
+      .update({ requested_stop, reason }).eq('id', editLocationId);
+    if (error) alert("Error updating: " + error.message);
+  } else {
+    const { error } = await supabaseClient.from('location_requests')
+      .insert([{ student_id: studentId, parent_id: parentId, current_stop: 'Current', requested_stop, reason }]);
+    if (error) alert("Error saving: " + error.message);
+  }
+  
+  editLocationId = null;
+  refreshDataSilently();
+}
+
+
 // Vehicle Substitution Actions
 function createSubstitution(originalBusId, replacementBusId, reason){
   DB.substitutions.unshift({
@@ -1371,7 +1439,7 @@ function maintenanceView(){
           <select id="m-sev" class="att-select"><option value="Low">Low</option><option value="Medium">Medium</option><option value="High">High / Urgent</option></select>
         </div>
         <textarea id="m-desc" placeholder="Describe the issue..." style="width:100%; height:80px; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:12px; font-family:inherit;"></textarea>
-        <button class="btn-primary" onclick="submitMaintenanceRequest('${myBus?.id}', '${state.userId}', document.getElementById('m-cat').value, document.getElementById('m-sev').value, document.getElementById('m-desc').value)">Submit Request</button>
+        <button id="m-btn" class="btn-primary" onclick="saveMaintenanceRequest('${myBus?.id}', '${state.userId}')">Submit Request</button>
       </div>
     ` : ''}
     
@@ -1392,7 +1460,10 @@ function maintenanceView(){
               <td style="padding:12px 8px; border-bottom:1px solid #eee;">${badge(m.status, m.status === 'Completed' ? 'done' : (m.status === 'In Progress' ? 'wait' : 'pending'))}</td>
               ${isDriver ? `
                 <td style="padding:12px 8px; border-bottom:1px solid #eee;">
-                  ${m.status !== 'Completed' ? `<button class="mini-btn ghost" onclick="deleteMaintenanceRequest('${m.id}')">Delete</button>` : `<span style="font-size:11px; color:var(--faint);">Locked</span>`}
+                  ${m.status !== 'Completed' ? `
+  <button class="mini-btn ghost" onclick="startEditMaintenance('${m.id}', '${m.category}', '${m.severity}', '${m.description || ''}')">✏️</button>
+  <button class="mini-btn ghost" onclick="deleteMaintenanceRequest('${m.id}')">🗑️</button>
+` : `<span style="font-size:11px; color:var(--faint);">Locked</span>`}
                 </td>
               ` : ''}
             </tr>
@@ -1420,7 +1491,7 @@ function locationRequestsView(){
         <div class="section-title"><h3>Request Stop Change</h3></div>
         <input type="text" id="lr-stop" placeholder="Requested New Stop" style="width:100%; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:10px;">
         <textarea id="lr-reason" placeholder="Reason..." style="width:100%; height:70px; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:12px; font-family:inherit;"></textarea>
-        <button class="btn-primary" onclick="submitLocationRequest('${child?.id}', '${state.userId}', 'Current Assigned Stop', document.getElementById('lr-stop').value, document.getElementById('lr-reason').value)">Submit</button>
+        <button id="lr-btn" class="btn-primary" onclick="saveLocationRequest('${child?.id}', '${state.userId}')">Submit</button>
       </div>
     ` : ''}
     
@@ -1441,7 +1512,10 @@ function locationRequestsView(){
               <td style="padding:12px 8px; border-bottom:1px solid #eee;">${badge(r.status, r.status === 'Approved' ? 'done' : (r.status === 'Rejected' ? 'absent' : 'pending'))}</td>
               ${isParent ? `
                 <td style="padding:12px 8px; border-bottom:1px solid #eee;">
-                  ${r.status === 'Pending' ? `<button class="mini-btn ghost" onclick="deleteLocationRequest('${r.id}')">Delete</button>` : `<span style="font-size:11px; color:var(--faint);">Locked</span>`}
+                  ${r.status === 'Pending' ? `
+  <button class="mini-btn ghost" onclick="startEditLocation('${r.id}', '${r.requested_stop}', '${r.reason || ''}')">✏️</button>
+  <button class="mini-btn ghost" onclick="deleteLocationRequest('${r.id}')">🗑️</button>
+` : `<span style="font-size:11px; color:var(--faint);">Locked</span>`}
                 </td>
               ` : ''}
             </tr>
