@@ -1248,6 +1248,8 @@ function studentCRMView() {
       <div class="grid g3" style="margin-bottom: 16px;">
         <div><span class="field-label">Full Name</span><input type="text" id="st-name" placeholder="Student Name"></div>
         <div><span class="field-label">Student ID</span><input type="text" id="st-id" placeholder="e.g. STU-001"></div>
+        <div><span class="field-label">Class Name</span><input type="text" id="st-class" placeholder="e.g. Grade 5A"></div>
+        
         <div><span class="field-label">Gender</span>
           <select id="st-gender" class="att-select" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);">
             <option value="Male">Male</option><option value="Female">Female</option>
@@ -1273,15 +1275,36 @@ function studentCRMView() {
            <div style="flex:1;"><span class="field-label">Blood Grp</span><input type="text" id="st-blood" placeholder="A+"></div>
         </div>
         
-        <div style="grid-column: span 3;"><span class="field-label">Address</span><input type="text" id="st-address" placeholder="Full residential address"></div>
+        <div style="grid-column: span 2;"><span class="field-label">Address</span><input type="text" id="st-address" placeholder="Full residential address"></div>
       </div>
       <button class="btn-primary" onclick="saveNewStudent()">Enroll Student</button>
     </div>
 
-    <!-- ... (Keep your existing Student Roster table here, it works perfectly) ... -->
+    <div class="card card-pad">
+      <div class="section-title"><h3>Student Roster</h3><span class="count">${liveData.students.length} Enrolled</span></div>
+      ${liveData.students.length === 0 ? `<div class="empty">No students enrolled yet.</div>` : `
+        <table style="width:100%; text-align:left; border-collapse: collapse;">
+          <tr style="font-size: 12px; color: var(--sub);">
+            <th style="padding:8px; border-bottom:1px solid #eee;">NAME, ID & CLASS</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">ASSIGNED PARENT</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">ASSIGNED BUS</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">MEDICAL INFO</th>
+          </tr>
+          ${liveData.students.map(s => {
+            const pName = (liveData.profiles.find(p => p.id === s.parent_id) || {}).full_name || 'Unassigned';
+            return `
+            <tr>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><b>${s.name}</b><br><span style="font-size:12px; color:var(--sub);">${s.custom_id || 'No ID'} · ${s.class_name}</span></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;">${pName}</td>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><b>${bus(s.bus_id).name}</b></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><span style="font-size:12px; color:var(--coral);">🩸 ${s.blood_group || 'N/A'}</span><br><span style="font-size:12px;">Age: ${s.age || 'N/A'}</span></td>
+            </tr>`
+          }).join('')}
+        </table>
+      `}
+    </div>
   `;
 }
-
 
 /* ============================================================
    FLEET CRM COMPONENT
@@ -1417,6 +1440,7 @@ async function saveNewParent() {
 async function saveNewStudent() {
   const name = document.getElementById('st-name').value.trim();
   const custom_id = document.getElementById('st-id').value.trim();
+  const class_name = document.getElementById('st-class').value.trim(); // <-- Added back!
   const gender = document.getElementById('st-gender').value;
   const parent_id = document.getElementById('st-parent').value || null;
   const bus_id = document.getElementById('st-bus').value || null;
@@ -1425,16 +1449,16 @@ async function saveNewStudent() {
   const address = document.getElementById('st-address').value.trim();
 
   if (!name) return alert("Student Name is required!");
+  if (!class_name) return alert("Class Name is required!"); // <-- Added validation!
 
   const { error } = await supabaseClient.from('students').insert([{
     school_id: state.schoolId,
-    name, custom_id, gender, parent_id, bus_id, age, blood_group, address
+    name, custom_id, class_name, gender, parent_id, bus_id, age, blood_group, address
   }]);
 
   if (error) alert("Error enrolling student: " + error.message);
   else { await fetchDashboardData(state.schoolId, state.role, state.userId); renderMain(); }
 }
-
 
 /* ============================================================
    ADMIN / MANAGER ROUTER
