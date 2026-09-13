@@ -381,6 +381,7 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const ROLES = [
   { id:'super_admin',       icon:'🏢', label:'Super Admin',       title:'School Board / Controller' },
   { id:'admin',             icon:'◎', label:'School Admin',      title:'Principal / Admin' },
+  { id:'clerk',             icon:'⌨️', label:'Data Clerk',        title:'Data Entry & CRM' }, // <-- ADD THIS LINE
   { id:'transport_manager', icon:'🚚', label:'Transport Manager', title:'Fleet & Operations Manager' },
   { id:'driver',            icon:'🚌', label:'Driver',           title:'Bus Driver' },
   { id:'teacher',           icon:'✎', label:'Teacher',          title:'Class Teacher' },
@@ -423,7 +424,7 @@ let liveData = {
   schools: [], profiles: [], buses: [], students: [], 
   transitLogs: [], attendance: [], transitApprovals: [],
   maintenance: [], locationRequests: [], 
-  incidents: [], substitutions: [] // <-- ADD THESE TWO
+  incidents: [], substitutions: [], routes: [], leaveRequests: []
 };
 
 async function fetchDashboardData(schoolId, role, userId) {
@@ -494,6 +495,12 @@ async function fetchDashboardData(schoolId, role, userId) {
 
     const { data: sub } = await supabaseClient.from('substitutions').select('*');
     liveData.substitutions = sub || [];
+
+    const { data: rts } = await supabaseClient.from('routes').select('*');
+    liveData.routes = rts || [];
+
+    const { data: lvs } = await supabaseClient.from('leave_requests').select('*');
+    liveData.leaveRequests = lvs || [];
 
     console.log("Data successfully loaded:", liveData);
     
@@ -955,8 +962,9 @@ function stepStatusText(v){ return v==='approved'||v==='done' ? 'Complete' : 'Pe
    ============================================================ */
 function tabsForRole(role){
   return {
-super_admin:       [['schools','🏢 All Schools'], ['global_reports','📊 Global Reports']],
+    super_admin:       [['schools','🏢 All Schools'], ['global_reports','📊 Global Reports']],
     admin:             [['overview','◎ Overview'], ['register','▤ Attendance'], ['maintenance','🔧 Maintenance'], ['substitutions','🔄 Substitutions'], ['requests','📍 Location Requests'], ['incidents','⚠️ Incidents'], ['calendar','📅 Calendar'], ['map','◈ Fleet Map']],
+    clerk:             [['staff','⌨️ Staff Directory'], ['students','🎓 Student Roster'], ['fleet','🚌 Fleet Setup']], // <-- ADD THIS LINE
     transport_manager: [['overview','◎ Fleet Status'], ['maintenance','🔧 Maintenance'], ['substitutions','🔄 Substitutions'], ['requests','📍 Location Requests'], ['incidents','⚠️ Incidents'], ['map','◈ Live Fleet']],
     driver:            [['route','▤ My Route'], ['maintenance_req','🔧 Report Issue'], ['incidents_req','⚠️ Report Incident'], ['map','◈ Live Map']],
     parent:            [['child','⌂ My Child'], ['location_change','📍 Request Stop Change'], ['attendance','✎ Attendance'], ['calendar','📅 Calendar'], ['map','◈ Bus Tracker']],
@@ -1025,6 +1033,9 @@ function renderMain(){
     body.innerHTML = teacherTab();
   } else if(state.role === 'student') {
     body.innerHTML = studentTab();
+  } else if(state.role === 'clerk') {
+    // <-- ADD THESE 3 LINES
+    body.innerHTML = clerkDashboardView();
   } else if(state.role === 'pta') {
     if(state.tab === 'overview') body.innerHTML = ptaOverview();
     else if(state.tab === 'incidents') body.innerHTML = incidentsView();
@@ -1064,7 +1075,39 @@ function superAdminTab(){
   `;
 }
 
-
+/* ============================================================
+   CLERK / CRM DASHBOARD
+   ============================================================ */
+function clerkDashboardView() {
+  if (state.tab === 'staff') {
+    return `
+      <div class="flow-note">⌨️ <b>Staff CRM:</b> Manage teachers, drivers, and operations staff. Add custom ID cards and assign roles.</div>
+      <div class="card card-pad">
+        <div class="section-title"><h3>Staff Directory</h3><button class="btn-primary" onclick="alert('Form opening soon!')">+ Add New Staff</button></div>
+        <div class="empty">The comprehensive staff list and data entry form will render here.</div>
+      </div>
+    `;
+  }
+  if (state.tab === 'students') {
+    return `
+      <div class="flow-note">🎓 <b>Student CRM:</b> Manage student records, demographics, and parent links.</div>
+      <div class="card card-pad">
+        <div class="section-title"><h3>Student Roster</h3><button class="btn-primary" onclick="alert('Form opening soon!')">+ Add New Student</button></div>
+        <div class="empty">The student list and medical/contact data entry form will render here.</div>
+      </div>
+    `;
+  }
+  if (state.tab === 'fleet') {
+    return `
+      <div class="flow-note">🚌 <b>Fleet CRM:</b> Register new vehicles, plate numbers, and insurance dates.</div>
+      <div class="card card-pad">
+        <div class="section-title"><h3>Fleet Registration</h3><button class="btn-primary" onclick="alert('Form opening soon!')">+ Add New Bus</button></div>
+        <div class="empty">The fleet vehicle registry will render here.</div>
+      </div>
+    `;
+  }
+  return clerkDashboardView(); // Fallback
+}
 /* ============================================================
    ADMIN / MANAGER ROUTER
    ============================================================ */
@@ -1822,6 +1865,8 @@ function setupRealtime() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'location_requests' }, payload => refreshDataSilently())
 .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, payload => refreshDataSilently())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'substitutions' }, payload => refreshDataSilently())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'routes' }, payload => refreshDataSilently())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests' }, payload => refreshDataSilently())
     .subscribe();
 }
 
