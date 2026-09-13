@@ -1610,7 +1610,7 @@ function maintenanceView(){
               ${isDriver ? `
                 <td style="padding:12px 8px; border-bottom:1px solid #eee;">
                   ${m.status !== 'Completed' ? `
-  <button class="mini-btn ghost" onclick="startEditMaintenance('${m.id}', '${m.category}', '${m.severity}', '${m.description || ''}')">✏️</button>
+  <button class="mini-btn ghost" onclick="startEditMaintenance('${m.id}', '${m.category}', '${m.severity}', '${(m.description || '').replace(/'/g, "\\'").replace(/[\r\n]+/g, " ")}')">✏️</button>
   <button class="mini-btn ghost" onclick="deleteMaintenanceRequest('${m.id}')">🗑️</button>
 ` : `<span style="font-size:11px; color:var(--faint);">Locked</span>`}
                 </td>
@@ -1662,7 +1662,7 @@ function locationRequestsView(){
               ${isParent ? `
                 <td style="padding:12px 8px; border-bottom:1px solid #eee;">
                   ${r.status === 'Pending' ? `
-  <button class="mini-btn ghost" onclick="startEditLocation('${r.id}', '${r.requested_stop}', '${r.reason || ''}')">✏️</button>
+  <button class="mini-btn ghost" onclick="startEditLocation('${r.id}', '${(r.requested_stop || '').replace(/'/g, "\\'")}', '${(r.reason || '').replace(/'/g, "\\'").replace(/[\r\n]+/g, " ")}')">✏️</button>
   <button class="mini-btn ghost" onclick="deleteLocationRequest('${r.id}')">🗑️</button>
 ` : `<span style="font-size:11px; color:var(--faint);">Locked</span>`}
                 </td>
