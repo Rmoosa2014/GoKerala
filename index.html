@@ -964,7 +964,7 @@ function tabsForRole(role){
   return {
     super_admin:       [['schools','🏢 All Schools'], ['global_reports','📊 Global Reports']],
     admin:             [['overview','◎ Overview'], ['register','▤ Attendance'], ['maintenance','🔧 Maintenance'], ['substitutions','🔄 Substitutions'], ['requests','📍 Location Requests'], ['incidents','⚠️ Incidents'], ['calendar','📅 Calendar'], ['map','◈ Fleet Map']],
-    clerk:             [['staff','⌨️ Staff Directory'], ['students','🎓 Student Roster'], ['fleet','🚌 Fleet Setup']], // <-- ADD THIS LINE
+    clerk: [['staff','⌨️ Staff Directory'], ['students','🎓 Student Roster'], ['parents','👪 Parents'], ['fleet','🚌 Fleet Setup']],
     transport_manager: [['overview','◎ Fleet Status'], ['maintenance','🔧 Maintenance'], ['substitutions','🔄 Substitutions'], ['requests','📍 Location Requests'], ['incidents','⚠️ Incidents'], ['map','◈ Live Fleet']],
     driver:            [['route','▤ My Route'], ['maintenance_req','🔧 Report Issue'], ['incidents_req','⚠️ Report Incident'], ['map','◈ Live Map']],
     parent:            [['child','⌂ My Child'], ['location_change','📍 Request Stop Change'], ['attendance','✎ Attendance'], ['calendar','📅 Calendar'], ['map','◈ Bus Tracker']],
@@ -1079,35 +1079,321 @@ function superAdminTab(){
    CLERK / CRM DASHBOARD
    ============================================================ */
 function clerkDashboardView() {
-  if (state.tab === 'staff') {
-    return `
-      <div class="flow-note">⌨️ <b>Staff CRM:</b> Manage teachers, drivers, and operations staff. Add custom ID cards and assign roles.</div>
-      <div class="card card-pad">
-        <div class="section-title"><h3>Staff Directory</h3><button class="btn-primary" onclick="alert('Form opening soon!')">+ Add New Staff</button></div>
-        <div class="empty">The comprehensive staff list and data entry form will render here.</div>
-      </div>
-    `;
-  }
-  if (state.tab === 'students') {
-    return `
-      <div class="flow-note">🎓 <b>Student CRM:</b> Manage student records, demographics, and parent links.</div>
-      <div class="card card-pad">
-        <div class="section-title"><h3>Student Roster</h3><button class="btn-primary" onclick="alert('Form opening soon!')">+ Add New Student</button></div>
-        <div class="empty">The student list and medical/contact data entry form will render here.</div>
-      </div>
-    `;
-  }
-  if (state.tab === 'fleet') {
-    return `
-      <div class="flow-note">🚌 <b>Fleet CRM:</b> Register new vehicles, plate numbers, and insurance dates.</div>
-      <div class="card card-pad">
-        <div class="section-title"><h3>Fleet Registration</h3><button class="btn-primary" onclick="alert('Form opening soon!')">+ Add New Bus</button></div>
-        <div class="empty">The fleet vehicle registry will render here.</div>
-      </div>
-    `;
-  }
-  return clerkDashboardView(); // Fallback
+  const currentTab = state.tab || 'staff';
+
+  if (currentTab === 'staff') return staffCRMView();
+  if (currentTab === 'students') return studentCRMView();
+  if (currentTab === 'parents') return parentCRMView();
+  if (currentTab === 'fleet') return fleetCRMView();
+  
+  return ''; 
 }
+
+
+/* ============================================================
+   STAFF CRM
+   ============================================================ */
+function staffCRMView() {
+  const staff = liveData.profiles.filter(p => ['teacher', 'driver', 'transport_manager'].includes(p.role));
+  
+  return `
+    <div class="flow-note">⌨️ <b>Staff CRM:</b> Manage teachers, drivers, and operations staff.</div>
+    
+    <div class="card card-pad" style="margin-bottom: 20px;">
+      <div class="section-title"><h3>Add New Staff Member</h3></div>
+      <div class="grid g3" style="margin-bottom: 16px;">
+        <div><span class="field-label">Full Name</span><input type="text" id="s-name" placeholder="John Doe"></div>
+        <div><span class="field-label">Role</span><select id="s-role" class="att-select" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);"><option value="teacher">Teacher</option><option value="driver">Driver</option><option value="transport_manager">Transport Manager</option></select></div>
+        <div><span class="field-label">Custom ID (Login)</span><input type="text" id="s-id" placeholder="e.g. TCH-001"></div>
+        <div><span class="field-label">Primary Phone</span><input type="text" id="s-phone" placeholder="050-XXXXXXX"></div>
+        <div><span class="field-label">Blood Group</span><input type="text" id="s-blood" placeholder="e.g. O+"></div>
+        <div><span class="field-label">Contract End Date</span><input type="date" id="s-contract" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);"></div>
+      </div>
+      <button class="btn-primary" onclick="saveNewStaff()">Create Staff Profile</button>
+    </div>
+
+    <div class="card card-pad">
+      <div class="section-title"><h3>Staff Directory</h3><span class="count">${staff.length} Members</span></div>
+      ${staff.length === 0 ? `<div class="empty">No staff members found.</div>` : `
+        <table style="width:100%; text-align:left; border-collapse: collapse;">
+          <tr style="font-size: 12px; color: var(--sub);">
+            <th style="padding:8px; border-bottom:1px solid #eee;">NAME & ID</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">ROLE</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">CONTACT / MED</th>
+          </tr>
+          ${staff.map(p => `
+            <tr>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><b>${p.full_name}</b><br><span style="font-size:12px; color:var(--sub);">${p.custom_id || 'No ID'}</span></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;">${badge(p.role.replace('_', ' ').toUpperCase(), 'done')}</td>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;">
+                <span style="font-size:12px;">📞 ${p.phone_primary || 'N/A'}</span><br>
+                <span style="font-size:12px; color:var(--coral);">🩸 ${p.blood_group || 'N/A'}</span>
+              </td>
+            </tr>
+          `).join('')}
+        </table>
+      `}
+    </div>
+  `;
+}
+
+/* ============================================================
+   PARENT CRM
+   ============================================================ */
+function parentCRMView() {
+  const parents = liveData.profiles.filter(p => p.role === 'parent');
+  
+  return `
+    <div class="flow-note">👪 <b>Parent CRM:</b> Manage parent contacts and PTA associations.</div>
+    
+    <div class="card card-pad" style="margin-bottom: 20px;">
+      <div class="section-title"><h3>Add New Parent</h3></div>
+      <div class="grid g3" style="margin-bottom: 16px;">
+        <div><span class="field-label">Full Name</span><input type="text" id="p-name" placeholder="Jane Doe"></div>
+        <div><span class="field-label">Custom ID (Login)</span><input type="text" id="p-id" placeholder="e.g. PAR-001"></div>
+        <div><span class="field-label">Primary Phone</span><input type="text" id="p-phone" placeholder="050-XXXXXXX"></div>
+        <div style="grid-column: span 2;"><span class="field-label">Home Address</span><input type="text" id="p-address" placeholder="123 Street Name, City"></div>
+        <div style="display:flex; align-items:center; padding-top:20px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="p-pta" style="width:18px; height:18px; margin:0;"> <b>Is PTA Member?</b>
+          </label>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="saveNewParent()">Create Parent Profile</button>
+    </div>
+
+    <div class="card card-pad">
+      <div class="section-title"><h3>Parents Directory</h3><span class="count">${parents.length} Registered</span></div>
+      ${parents.length === 0 ? `<div class="empty">No parents registered.</div>` : `
+        <table style="width:100%; text-align:left; border-collapse: collapse;">
+          <tr style="font-size: 12px; color: var(--sub);">
+            <th style="padding:8px; border-bottom:1px solid #eee;">NAME & ID</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">CONTACT & ADDRESS</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">PTA STATUS</th>
+          </tr>
+          ${parents.map(p => `
+            <tr>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><b>${p.full_name}</b><br><span style="font-size:12px; color:var(--sub);">${p.custom_id || 'No ID'}</span></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><span style="font-size:12px;">📞 ${p.phone_primary || 'N/A'}</span><br><span style="font-size:12px; color:var(--sub);">${p.address || 'No Address'}</span></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;">${p.is_pta_member ? badge('PTA Member', 'wait') : badge('Parent', 'pending')}</td>
+            </tr>
+          `).join('')}
+        </table>
+      `}
+    </div>
+  `;
+}
+
+/* ============================================================
+   STUDENT CRM
+   ============================================================ */
+function studentCRMView() {
+  // Grab parents and buses to populate the dropdowns
+  const parentOptions = liveData.profiles.filter(p => p.role === 'parent');
+  const busOptions = liveData.buses;
+
+  return `
+    <div class="flow-note">🎓 <b>Student CRM:</b> Register students and link them to parents and buses.</div>
+    
+    <div class="card card-pad" style="margin-bottom: 20px;">
+      <div class="section-title"><h3>Enroll New Student</h3></div>
+      <div class="grid g3" style="margin-bottom: 16px;">
+        <div><span class="field-label">Full Name</span><input type="text" id="st-name" placeholder="Student Name"></div>
+        <div><span class="field-label">Student ID</span><input type="text" id="st-id" placeholder="e.g. STU-001"></div>
+        <div><span class="field-label">Class Name</span><input type="text" id="st-class" placeholder="e.g. Grade 5A"></div>
+        
+        <div><span class="field-label">Assign Parent</span>
+          <select id="st-parent" class="att-select" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);">
+            <option disabled selected value="">Select a Parent...</option>
+            ${parentOptions.map(p => `<option value="${p.id}">${p.full_name}</option>`).join('')}
+          </select>
+        </div>
+        
+        <div><span class="field-label">Assign Bus Route</span>
+          <select id="st-bus" class="att-select" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);">
+            <option disabled selected value="">Select a Bus...</option>
+            ${busOptions.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}
+          </select>
+        </div>
+        
+        <div style="display:flex; gap:10px;">
+           <div style="flex:1;"><span class="field-label">Age</span><input type="number" id="st-age" placeholder="e.g. 10" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);"></div>
+           <div style="flex:1;"><span class="field-label">Blood Grp</span><input type="text" id="st-blood" placeholder="e.g. A+"></div>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="saveNewStudent()">Enroll Student</button>
+    </div>
+
+    <div class="card card-pad">
+      <div class="section-title"><h3>Student Roster</h3><span class="count">${liveData.students.length} Enrolled</span></div>
+      ${liveData.students.length === 0 ? `<div class="empty">No students enrolled yet.</div>` : `
+        <table style="width:100%; text-align:left; border-collapse: collapse;">
+          <tr style="font-size: 12px; color: var(--sub);">
+            <th style="padding:8px; border-bottom:1px solid #eee;">NAME, ID & CLASS</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">ASSIGNED PARENT</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">ASSIGNED BUS</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">MEDICAL INFO</th>
+          </tr>
+          ${liveData.students.map(s => {
+            const pName = (liveData.profiles.find(p => p.id === s.parent_id) || {}).full_name || 'Unassigned';
+            return `
+            <tr>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><b>${s.name}</b><br><span style="font-size:12px; color:var(--sub);">${s.custom_id || 'No ID'} · ${s.class_name}</span></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;">${pName}</td>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><b>${bus(s.bus_id).name}</b></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><span style="font-size:12px; color:var(--coral);">🩸 ${s.blood_group || 'N/A'}</span><br><span style="font-size:12px;">Age: ${s.age || 'N/A'}</span></td>
+            </tr>`
+          }).join('')}
+        </table>
+      `}
+    </div>
+  `;
+}
+
+
+/* ============================================================
+   FLEET CRM COMPONENT
+   ============================================================ */
+function fleetCRMView() {
+  return `
+    <div class="flow-note">🚌 <b>Fleet CRM:</b> Register new vehicles, plate numbers, and insurance dates.</div>
+    
+    <!-- ADD VEHICLE FORM -->
+    <div class="card card-pad" style="margin-bottom: 20px;">
+      <div class="section-title"><h3>Register New Vehicle</h3></div>
+      <div class="grid g3" style="margin-bottom: 16px;">
+        <div><span class="field-label">Bus Identifier (Name)</span><input type="text" id="f-name" placeholder="e.g., Route 01"></div>
+        <div><span class="field-label">License Plate Number</span><input type="text" id="f-plate" placeholder="e.g., KSA-1234"></div>
+        <div><span class="field-label">Seat Capacity</span><input type="number" id="f-seats" placeholder="e.g., 40" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); margin-bottom:16px;"></div>
+        <div><span class="field-label">Model Year</span><input type="number" id="f-year" placeholder="e.g., 2024" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); margin-bottom:16px;"></div>
+        <div><span class="field-label">Insurance Expiry Date</span><input type="date" id="f-ins" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); margin-bottom:16px;"></div>
+        <div><span class="field-label">Test / Inspection Expiry</span><input type="date" id="f-test" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); margin-bottom:16px;"></div>
+      </div>
+      <button class="btn-primary" onclick="saveNewBus()">Register Vehicle to Fleet</button>
+    </div>
+
+    <!-- LIVE FLEET REGISTRY TABLE -->
+    <div class="card card-pad">
+      <div class="section-title"><h3>Active Fleet Registry</h3><span class="count">${liveData.buses.length} Vehicles</span></div>
+      ${liveData.buses.length === 0 ? `<div class="empty">No vehicles registered yet.</div>` : `
+        <table style="width:100%; text-align:left; border-collapse: collapse;">
+          <tr style="font-size: 12px; color: var(--sub);">
+            <th style="padding:8px; border-bottom:1px solid #eee;">BUS NAME</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">PLATE & MODEL</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">CAPACITY</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">COMPLIANCE (EXPIRY)</th>
+          </tr>
+          ${liveData.buses.map(b => `
+            <tr>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><b>${b.name}</b></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;">${b.plate_number || 'N/A'}<br><span style="font-size:12px; color:var(--sub);">Year: ${b.model_year || 'N/A'}</span></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;">${b.seat_capacity || 0} seats</td>
+              <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;">
+                <span style="font-size:12px;">Ins: ${b.insurance_expiry || 'N/A'}</span><br>
+                <span style="font-size:12px;">Test: ${b.test_expiry || 'N/A'}</span>
+              </td>
+            </tr>
+          `).join('')}
+        </table>
+      `}
+    </div>
+  `;
+}
+
+
+async function saveNewBus() {
+  const name = document.getElementById('f-name').value.trim();
+  const plate_number = document.getElementById('f-plate').value.trim();
+  const seat_capacity = document.getElementById('f-seats').value;
+  const model_year = document.getElementById('f-year').value;
+  const insurance_expiry = document.getElementById('f-ins').value || null;
+  const test_expiry = document.getElementById('f-test').value || null;
+
+  if (!name) return alert("Bus Identifier (Name) is required!");
+
+  const { error } = await supabaseClient.from('buses').insert([{
+    school_id: state.schoolId,
+    name, plate_number, seat_capacity, model_year, insurance_expiry, test_expiry
+  }]);
+
+  if (error) {
+    alert("Error saving vehicle: " + error.message);
+  } else {
+    // Force a fresh fetch of the database so the new bus appears instantly
+    await fetchDashboardData(state.schoolId, state.role, state.userId);
+    renderMain(); 
+  }
+}
+
+/* ============================================================
+   CRM SAVE ACTIONS
+   ============================================================ */
+
+// Note: In the final production version, creating Staff and Parents will trigger a Supabase 
+// Edge Function to create their Auth passwords securely. This creates the database records.
+
+async function saveNewStaff() {
+  const full_name = document.getElementById('s-name').value.trim();
+  const role = document.getElementById('s-role').value;
+  const custom_id = document.getElementById('s-id').value.trim();
+  const phone_primary = document.getElementById('s-phone').value.trim();
+  const blood_group = document.getElementById('s-blood').value.trim();
+  const contract_end = document.getElementById('s-contract').value || null;
+
+  if (!full_name) return alert("Name is required!");
+
+  // Inserting into profiles (creates the CRM record)
+  const { error } = await supabaseClient.from('profiles').insert([{
+    id: crypto.randomUUID(), // Generates a safe dummy UUID for the prototype
+    school_id: state.schoolId,
+    full_name, role, custom_id, phone_primary, blood_group, contract_end
+  }]);
+
+  if (error) alert("Error saving staff: " + error.message);
+  else { await fetchDashboardData(state.schoolId, state.role, state.userId); renderMain(); }
+}
+
+async function saveNewParent() {
+  const full_name = document.getElementById('p-name').value.trim();
+  const custom_id = document.getElementById('p-id').value.trim();
+  const phone_primary = document.getElementById('p-phone').value.trim();
+  const address = document.getElementById('p-address').value.trim();
+  const is_pta_member = document.getElementById('p-pta').checked;
+
+  if (!full_name) return alert("Name is required!");
+
+  const { error } = await supabaseClient.from('profiles').insert([{
+    id: crypto.randomUUID(),
+    school_id: state.schoolId,
+    role: 'parent',
+    full_name, custom_id, phone_primary, address, is_pta_member
+  }]);
+
+  if (error) alert("Error saving parent: " + error.message);
+  else { await fetchDashboardData(state.schoolId, state.role, state.userId); renderMain(); }
+}
+
+async function saveNewStudent() {
+  const name = document.getElementById('st-name').value.trim();
+  const custom_id = document.getElementById('st-id').value.trim();
+  const class_name = document.getElementById('st-class').value.trim();
+  const parent_id = document.getElementById('st-parent').value || null;
+  const bus_id = document.getElementById('st-bus').value || null;
+  const age = document.getElementById('st-age').value || null;
+  const blood_group = document.getElementById('st-blood').value.trim();
+
+  if (!name) return alert("Student Name is required!");
+
+  const { error } = await supabaseClient.from('students').insert([{
+    school_id: state.schoolId,
+    name, custom_id, class_name, parent_id, bus_id, age, blood_group
+  }]);
+
+  if (error) alert("Error enrolling student: " + error.message);
+  else { await fetchDashboardData(state.schoolId, state.role, state.userId); renderMain(); }
+}
+
+
 /* ============================================================
    ADMIN / MANAGER ROUTER
    ============================================================ */
