@@ -1481,70 +1481,78 @@ function routeBuilderView() {
   const selectedBusId = state.selectedRouteBus || (liveData.buses[0] ? liveData.buses[0].id : null);
   const busData = liveData.buses.find(b => b.id === selectedBusId) || {};
   
-  // Parse Operating Days (Fallback to Mon-Fri if empty)
-  let activeDays = [];
-  try { activeDays = typeof busData.operating_days === 'string' ? JSON.parse(busData.operating_days) : (busData.operating_days || ['Mon','Tue','Wed','Thu','Fri']); } 
-  catch(e) { activeDays = ['Mon','Tue','Wed','Thu','Fri']; }
-
+  const activeDays = parseOperatingDays(busData.operating_days);
   const stops = liveData.routes.filter(r => r.bus_id === selectedBusId).sort((a, b) => a.stop_order - b.stop_order);
   
-  // Handle Edit State
   const isEditing = !!state.editingRouteId;
   const editStop = isEditing ? stops.find(s => s.id === state.editingRouteId) : null;
-  const nextOrderNumber = stops.length + 1;
 
   return `
-    <div class="flow-note">📍 <b>Logical Route Builder:</b> Drag and drop stops to reorder. The system automatically recalculates serial numbers and cumulative ETAs.</div>
+    <div class="flow-note">📍 <b>Logical Route Builder:</b> Drag and drop stops to reorder. Set individual departure times for specific days of the week.</div>
     
     <div class="card card-pad" style="margin-bottom: 20px;">
-      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-        <div>
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
+        <div style="flex:1;">
            <div class="section-title" style="margin:0;"><h3>Select Fleet Vehicle</h3></div>
-           <select class="att-select" style="padding:8px 16px; border-radius:8px; margin-top:8px; margin-bottom:12px;" onchange="state.selectedRouteBus = this.value; state.editingRouteId = null; renderMain();">
+           <select class="att-select" style="padding:8px 16px; border-radius:8px; margin-top:8px; margin-bottom:12px; width:100%; max-width:300px;" onchange="state.selectedRouteBus = this.value; state.editingRouteId = null; renderMain();">
              ${liveData.buses.map(b => `<option value="${b.id}" ${b.id === selectedBusId ? 'selected' : ''}>${b.name}</option>`).join('')}
            </select>
-           <div>
-             <span class="field-label" style="font-size:10px;">OPERATING DAYS</span>
-             <div style="display:flex; gap:6px;">
-               ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => `
-                 <button class="day-btn ${activeDays.includes(d) ? 'active' : ''}" onclick="toggleOperatingDay('${selectedBusId}', '${d}')">${d}</button>
-               `).join('')}
-             </div>
-           </div>
         </div>
-        <div style="text-align:right;">
-           <span class="field-label">Scheduled Departure Time</span>
-           <div style="display:flex; gap:8px;">
-             <input type="time" id="r-start-time" value="${busData.start_time || '07:00'}" style="padding:8px; border-radius:8px; border:1px solid var(--line);">
-             <button class="mini-btn ghost" onclick="saveRouteSettings('${selectedBusId}')">Save Time & Days</button>
+        
+        <div style="flex:2;">
+           <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+             <span class="field-label" style="font-size:10px;">OPERATING DAYS & TIMES</span>
+             <button class="mini-btn ghost" style="border-color:var(--indigo); color:var(--indigo);" onclick="saveRouteSettings('${selectedBusId}')">Save Schedule</button>
+           </div>
+           
+           <!-- NEW DAY-BY-DAY TIME SETTERS -->
+           <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;">
+             ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => {
+               const isActive = activeDays.hasOwnProperty(d);
+               const timeVal = isActive ? activeDays[d] : '07:00';
+               return `
+                 <div style="display:flex; flex-direction:column; align-items:center; gap:6px; padding:8px 10px; border:1px solid ${isActive ? 'var(--indigo)' : '#E6E9F2'}; background:${isActive ? 'var(--indigo-soft)' : 'transparent'}; border-radius:10px;">
+                   <button class="day-btn ${isActive ? 'active' : ''}" style="width:100%; border:none; box-shadow:none; padding:4px 8px;" onclick="toggleOperatingDay('${selectedBusId}', '${d}')">${d}</button>
+                   ${isActive ? `<input type="time" id="time-${d}" value="${timeVal}" style="padding:4px 6px; font-size:11px; border:1px solid #C7D1EE; border-radius:6px; background:#fff;">` : `<span style="font-size:11px; color:var(--faint); padding:6px 0;">Off</span>`}
+                 </div>
+               `;
+             }).join('')}
            </div>
         </div>
       </div>
     </div>
 
     ${selectedBusId ? `
+      <!-- THE EDIT/ADD STOP BLOCK -->
       <div class="card card-pad" style="margin-bottom: 20px; background: ${isEditing ? 'var(--amber-soft)' : 'var(--indigo-soft)'}; border: 1px solid ${isEditing ? 'var(--amber)' : '#E7ECFC'};">
         <div class="section-title" style="margin-bottom:8px;">
           <h3>${isEditing ? '✏️ Edit Stop Data' : '➕ Add New Stop'}</h3>
           ${isEditing ? `<button class="mini-btn ghost" onclick="state.editingRouteId = null; renderMain();">Cancel Edit</button>` : ''}
         </div>
         
-        <div class="grid g3" style="margin-bottom: 16px; align-items: end;">
-          <div>
+        <div class="grid g3" style="margin-bottom: 16px; align-items: flex-end; gap: 16px;">
+          <div style="width:100%;">
             <span class="field-label">Select Stop to Edit</span>
             <select class="att-select" style="width:100%; padding:12px; border-radius:10px;" onchange="if(this.value){ state.editingRouteId = this.value; renderMain(); }">
               <option value="">-- Choose to Edit --</option>
               ${stops.map(s => `<option value="${s.id}" ${state.editingRouteId === s.id ? 'selected' : ''}>#${s.stop_order}: ${s.stop_name}</option>`).join('')}
             </select>
           </div>
-          <div><span class="field-label">Stop Name / Location</span><input type="text" id="r-stop" value="${editStop ? editStop.stop_name : ''}" placeholder="e.g. Main Street"></div>
-          <div><span class="field-label">Time from Previous (Mins)</span><input type="number" id="r-time" value="${editStop ? editStop.time_from_previous : ''}" placeholder="e.g. 10" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);"></div>
+          <div style="width:100%;">
+            <span class="field-label">Stop Name / Location</span>
+            <input type="text" id="r-stop" value="${editStop ? editStop.stop_name : ''}" placeholder="e.g. Main Street" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);">
+          </div>
+          <div style="width:100%;">
+            <span class="field-label">Time from Previous (Mins)</span>
+            <input type="number" id="r-time" value="${editStop ? editStop.time_from_previous : ''}" placeholder="e.g. 10" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);">
+          </div>
         </div>
         <button class="btn-primary" ${isEditing ? 'style="background:var(--amber);"' : ''} onclick="saveRouteStop('${selectedBusId}', ${isEditing ? false : true})">
           ${isEditing ? 'Update Stop Information' : 'Add to Sequence'}
         </button>
       </div>
 
+      <!-- SEQUENCE TIMELINE (DRAG & DROP) -->
       <div class="card card-pad">
         <div class="section-title"><h3>Sequence Timeline</h3><span class="count">${stops.length} Stops (Drag to reorder)</span></div>
         ${stops.length === 0 ? `<div class="empty">No stops added yet.</div>` : `
@@ -1557,7 +1565,7 @@ function routeBuilderView() {
               <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">ACTIONS</th>
             </tr>
             ${stops.map(s => `
-              <tr class="drag-row" draggable="true" ondragstart="handleDragStart(event, '${s.id}')" ondragend="handleDragEnd(event)" ondragover="handleDragOver(event)" ondrop="handleDrop(event, '${s.id}')">
+              <tr class="drag-row" draggable="true" ondragstart="handleDragStart(event, '${s.id}')" ondragover="handleDragOver(event)" ondrop="handleDrop(event, '${s.id}')">
                 <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5; color:var(--faint); font-size:18px;">⋮⋮</td>
                 <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><b>#${s.stop_order}</b></td>
                 <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><b>${s.stop_name}</b></td>
@@ -1574,34 +1582,71 @@ function routeBuilderView() {
     ` : ''}
   `;
 }
+
+
+
+
 /* ============================================================
    ROUTE ALGORITHM ACTION
    ============================================================ */
-async function saveRouteSettings(busId) {
-  const timeVal = document.getElementById('r-start-time').value;
-  const bus = liveData.buses.find(b => b.id === busId);
-  const activeDays = bus.operating_days || ['Mon','Tue','Wed','Thu','Fri'];
-
-  const { error } = await supabaseClient.from('buses').update({ 
-    start_time: timeVal, 
-    operating_days: activeDays // Supabase automatically handles the array to JSONB conversion
-  }).eq('id', busId);
-
-  if (error) alert("Error saving settings: " + error.message);
-  else alert("Schedule updated successfully.");
+function parseOperatingDays(dbValue) {
+  let days = {};
+  try {
+    const parsed = typeof dbValue === 'string' ? JSON.parse(dbValue) : dbValue;
+    if (Array.isArray(parsed)) {
+      // Migrate old array format to object format automatically
+      parsed.forEach(d => days[d] = "07:00");
+    } else if (parsed && typeof parsed === 'object') {
+      days = parsed;
+    } else {
+      days = { 'Mon':'07:00', 'Tue':'07:00', 'Wed':'07:00', 'Thu':'07:00', 'Fri':'07:00' };
+    }
+  } catch(e) {
+    days = { 'Mon':'07:00', 'Tue':'07:00', 'Wed':'07:00', 'Thu':'07:00', 'Fri':'07:00' };
+  }
+  return days;
 }
 
-// Local UI toggle for Operating Days
+// Helper to grab today's specific time for the live map
+function getTodayScheduledTime(bus) {
+  const daysObj = parseOperatingDays(bus.operating_days);
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const todayName = dayNames[new Date().getDay()];
+  
+  // Return today's specific time, or fallback to the first active day if it's the weekend
+  if (daysObj[todayName]) return daysObj[todayName];
+  const activeKeys = Object.keys(daysObj);
+  return activeKeys.length > 0 ? daysObj[activeKeys[0]] : "07:00";
+}
+
 function toggleOperatingDay(busId, day) {
   const bus = liveData.buses.find(b => b.id === busId);
-  let days = bus.operating_days || ['Mon','Tue','Wed','Thu','Fri'];
-  if(typeof days === 'string') days = JSON.parse(days);
+  let daysObj = parseOperatingDays(bus.operating_days);
 
-  if (days.includes(day)) days = days.filter(d => d !== day);
-  else days.push(day);
+  // Toggle on/off logic
+  if (daysObj.hasOwnProperty(day)) delete daysObj[day];
+  else daysObj[day] = "07:00"; // Default to 7 AM when turned on
 
-  bus.operating_days = days;
-  renderMain(); // Updates UI instantly, must click Save Time & Days to push to DB
+  bus.operating_days = daysObj;
+  renderMain();
+}
+
+async function saveRouteSettings(busId) {
+  const bus = liveData.buses.find(b => b.id === busId);
+  const daysObj = parseOperatingDays(bus.operating_days);
+
+  // Scrape the latest time inputs directly from the UI before saving
+  Object.keys(daysObj).forEach(d => {
+    const input = document.getElementById(`time-${d}`);
+    if (input) daysObj[d] = input.value;
+  });
+
+  const { error } = await supabaseClient.from('buses').update({ 
+    operating_days: daysObj 
+  }).eq('id', busId);
+
+  if (error) alert("Error saving schedule: " + error.message);
+  else alert("Day-by-day schedule saved securely.");
 }
 
 // 2. Add or Update Stop Data
@@ -1643,13 +1688,18 @@ async function deleteRouteStop(routeId) {
 
 // 3. Drag and Drop Handlers
 let draggedRouteId = null;
-function handleDragStart(e, id) { draggedRouteId = id; e.target.style.opacity = '0.5'; }
+function handleDragStart(e, id) { 
+  e.dataTransfer.setData('text/plain', id); // Safely stores the ID in the browser
+  e.target.style.opacity = '0.4'; 
+}
 function handleDragEnd(e) { e.target.style.opacity = '1'; }
-function handleDragOver(e) { e.preventDefault(); } // Required to allow dropping
-
+function handleDragOver(e) { e.preventDefault(); }
 async function handleDrop(e, targetId) {
   e.preventDefault();
-  if (draggedRouteId === targetId) return;
+  e.target.closest('tr').style.opacity = '1';
+  
+  const draggedRouteId = e.dataTransfer.getData('text/plain');
+  if (!draggedRouteId || draggedRouteId === targetId) return;
 
   const busId = state.selectedRouteBus;
   let stops = liveData.routes.filter(r => r.bus_id === busId).sort((a,b) => a.stop_order - b.stop_order);
@@ -1657,7 +1707,8 @@ async function handleDrop(e, targetId) {
   const draggedIndex = stops.findIndex(s => s.id === draggedRouteId);
   const targetIndex = stops.findIndex(s => s.id === targetId);
 
-  // Reorder the array
+  if (draggedIndex === -1 || targetIndex === -1) return; // Safety catch
+
   const [draggedItem] = stops.splice(draggedIndex, 1);
   stops.splice(targetIndex, 0, draggedItem);
 
@@ -1706,68 +1757,83 @@ async function saveRouteStartTime(busId) {
 }
 
 /* ============================================================
-   HORIZONTAL LIVE TRACKER COMPONENT
+   HORIZONTAL LIVE TRACKER COMPONENT (SERIOUS UPGRADES)
    ============================================================ */
+
+// Helper: Takes "07:00" and adds 15 mins to return "07:15 AM"
+function formatActualTime(baseTimeStr, addedMins) {
+  if (!baseTimeStr) baseTimeStr = "07:00";
+  const [h, m] = baseTimeStr.split(':');
+  const d = new Date();
+  d.setHours(parseInt(h), parseInt(m) + addedMins, 0, 0);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 function liveTrackerView(busId) {
   const stops = liveData.routes.filter(r => r.bus_id === busId).sort((a, b) => a.stop_order - b.stop_order);
-  const bus = liveData.buses.find(b => b.id === busId) || { name: 'Unknown Bus' };
+  const bus = liveData.buses.find(b => b.id === busId) || { name: 'Unknown Bus', start_time: '07:00' };
   
   if (stops.length < 2) return `<div class="empty">Please add at least 2 stops in the Route Builder for this bus.</div>`;
 
   const segmentWidth = 100 / (stops.length - 1);
+  
+  // Get live date and time for the header
+  const nowStr = new Date().toLocaleDateString([], {weekday:'long', month:'short', day:'numeric'}) + " · " + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
 
   return `
     <div class="hz-card">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:nowrap;">
         <div style="display:flex; align-items:center; gap:10px;">
           <span style="color:#2563eb; font-size:24px;">📍</span>
-          <h2 style="margin:0; font-size:20px; color:#0f172a;">Live Fleet Map</h2>
+          <h2 style="margin:0; font-size:20px; color:#0f172a; white-space:nowrap;">Live Fleet Map</h2>
         </div>
         
-        <!-- THE NEW DROPDOWN -->
-        <select class="att-select" style="padding:8px 16px; border-radius:8px;" onchange="
-          clearInterval(trackerInterval); 
-          document.querySelector('.hz-card').parentElement.innerHTML = liveTrackerView(this.value);
-          startLogicalTracker(this.value);
-        ">
-          ${liveData.buses.map(b => `<option value="${b.id}" ${b.id === busId ? 'selected' : ''}>${b.name}</option>`).join('')}
-        </select>
+        <div style="text-align:right;">
+          <div style="font-size:12px; color:var(--sub); font-weight:600; margin-bottom:4px;">${nowStr}</div>
+          <select class="att-select" style="padding:6px 12px; border-radius:8px;" onchange="
+            clearInterval(trackerInterval); 
+            document.querySelector('.hz-card').parentElement.innerHTML = liveTrackerView(this.value);
+            startLogicalTracker(this.value);
+          ">
+            ${liveData.buses.map(b => `<option value="${b.id}" ${b.id === busId ? 'selected' : ''}>${b.name}</option>`).join('')}
+          </select>
+        </div>
       </div>
       
-      <div class="hz-timeline-container">
-        <!-- The Green Progress Line -->
+      <!-- INCREASED MARGINS: 80px left and right to prevent text clipping -->
+      <div class="hz-timeline-container" style="margin: 80px 80px 120px 80px;">
         <div class="hz-track-fill" id="hz-fill-line"></div>
         
-        <!-- The Moving Bus -->
         <div class="hz-bus-container" id="hz-animated-bus">
           <span style="position:absolute; left:-15px; top:10px; font-size:14px; color:#38bdf8; letter-spacing:-2px;">💨</span>
           🚌
         </div>
 
-        <!-- The Stops -->
         ${stops.map((s, index) => {
           const leftPosition = index * segmentWidth;
+          const isFirst = index === 0;
+          const isLast = index === stops.length - 1;
+          const nodeIcon = (isFirst || isLast) ? '🏫' : ''; // School icon for Start/End!
+          const actualTime = formatActualTime(getTodayScheduledTime(bus), s.est_time_from_start);
+
           return `
             <div class="hz-node" id="hz-node-${index}" style="left: ${leftPosition}%;">
-              <div class="hz-circle" id="hz-circle-${index}"></div>
+              <div class="hz-circle" id="hz-circle-${index}" style="font-size:${nodeIcon ? '14px' : '12px'}; border-color:${(isFirst||isLast) ? 'var(--indigo)' : '#cbd5e1'};">${nodeIcon}</div>
               <div class="hz-label">
-                <div style="font-weight:700; font-size:13px; color:#1e293b;">${s.stop_name}</div>
-                <div style="font-size:11px; color:#64748b; margin-top:4px;">Scheduled: +${s.est_time_from_start} mins from start</div>
+                <div style="font-weight:700; font-size:13px; color:#1e293b;">${isFirst && !s.stop_name.toLowerCase().includes('school') ? 'School (' + s.stop_name + ')' : s.stop_name}</div>
+                <div style="font-size:12px; font-weight:600; color:var(--indigo); margin-top:4px;">${actualTime}</div>
               </div>
             </div>
           `;
         }).join('')}
       </div>
 
-      <!-- Footer Status Bar -->
       <div class="hz-status-footer">
         <div style="display:flex; align-items:center; gap:10px; font-weight:600; font-size:13px; color:#0f172a;">
           <span style="background:#10b981; color:white; padding:4px; border-radius:50%; font-size:12px;">🚌</span>
           ${bus.name} <span style="color:#64748b; font-weight:400;">—</span> <span id="hz-footer-text">Calculating route...</span>
         </div>
-        
         <div class="hz-status-bar"><div class="hz-status-fill" id="hz-footer-fill"></div></div>
-        
         <div style="font-size:13px; color:#64748b; display:flex; align-items:center; gap:6px;">
           <span id="hz-footer-count">0 of ${stops.length} stops</span> <span style="color:#10b981;">✔</span>
         </div>
@@ -1792,7 +1858,7 @@ function startLogicalTracker(busId) {
   const segmentWidthPercentage = 100 / totalSegments;
 
   // 1. Establish the Anchor Time (Today at the Scheduled Start Time)
-  const scheduledTime = bus.start_time || "07:00";
+  const scheduledTime = getTodayScheduledTime(bus);
   let routeAnchorTime = new Date();
   const [hours, minutes] = scheduledTime.split(':');
   routeAnchorTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
