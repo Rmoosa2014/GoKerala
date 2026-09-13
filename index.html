@@ -452,35 +452,22 @@ async function fetchDashboardData(schoolId, role, userId) {
     
     const { data: students } = await studentQuery;
     liveData.students = students || [];
-
-    // 3, 4 & 5. Fetch Today's Logs, Attendance, and Approvals
+// 3, 4 & 5. Fetch Today's Logs, Attendance, and Approvals safely
     if (liveData.students.length > 0) {
       const studentIds = liveData.students.map(s => s.id);
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toISOString().split('T')[0]; // e.g., "2026-09-13"
       
-      // Fetch Transit Logs
-      const { data: logs } = await supabaseClient
-        .from('transit_logs')
-        .select('*')
-        .in('student_id', studentIds)
-        .eq('date', today);
-      liveData.transitLogs = logs || [];
-
-      // Fetch Attendance
-      const { data: att } = await supabaseClient
-        .from('attendance')
-        .select('*')
-        .in('student_id', studentIds)
-        .eq('date', today);
-      liveData.attendance = att || [];
-
-      // Fetch Transit Approvals
-      const { data: approvals } = await supabaseClient
-        .from('transit_approvals')
-        .select('*')
-        .in('student_id', studentIds)
-        .eq('date', today);
-      liveData.transitApprovals = approvals || [];
+      // Fetch all records for these students
+      const { data: logs } = await supabaseClient.from('transit_logs').select('*').in('student_id', studentIds);
+      const { data: att } = await supabaseClient.from('attendance').select('*').in('student_id', studentIds);
+      const { data: approvals } = await supabaseClient.from('transit_approvals').select('*').in('student_id', studentIds);
+        
+      // Safely filter for today using Supabase's default 'created_at' column in JavaScript
+      liveData.transitLogs = (logs || []).filter(l => l.created_at && l.created_at.startsWith(today));
+      liveData.transitApprovals = (approvals || []).filter(a => a.created_at && a.created_at.startsWith(today)); 
+      
+      // Attendance explicitly uses the 'date' column from our upsert earlier
+      liveData.attendance = (att || []).filter(a => a.date === today || (a.created_at && a.created_at.startsWith(today)));
     }
 
     console.log("Data successfully loaded:", liveData);
@@ -1075,14 +1062,13 @@ async function logApproval(studentId, eventType, role) {
       student_id: studentId,
       event_type: eventType,
       approved_by_role: role,
-      approved_by_user: state.userId,
-      date: new Date().toISOString().split('T')[0]
+      approved_by_user: state.userId
+      // Removed the 'date' insert here so it safely relies on the database's default 'created_at' timestamp
     }]);
   
   if (error) {
     alert("Error saving approval: " + error.message);
   } else {
-    // Fetch fresh data and redraw the screen to show the checkmark
     await fetchDashboardData(state.schoolId, state.role, state.userId);
     renderMain();
   }
