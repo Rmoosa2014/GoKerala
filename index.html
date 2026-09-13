@@ -439,8 +439,9 @@ async function fetchDashboardData(schoolId, role, userId) {
       .eq('school_id', schoolId);
     liveData.buses = buses || [];
 
-    // 2. Fetch Students
+// 2. Fetch Students
     let studentQuery = supabaseClient.from('students').select('*').eq('school_id', schoolId);
+    
     if (role === 'driver') {
       const myBus = liveData.buses.find(b => b.driver_id === userId);
       if (myBus) studentQuery = studentQuery.eq('bus_id', myBus.id);
@@ -448,10 +449,14 @@ async function fetchDashboardData(schoolId, role, userId) {
       studentQuery = studentQuery.eq('parent_id', userId);
     } else if (role === 'teacher') {
       studentQuery = studentQuery.eq('teacher_id', userId);
+    } else if (role === 'student') {
+      // NEW: Fetch only the specific student associated with this login account
+      studentQuery = studentQuery.eq('account_id', userId); 
     }
     
     const { data: students } = await studentQuery;
-    liveData.students = students || [];
+    liveData.students = students || [];     
+
 // 3, 4 & 5. Fetch Today's Logs, Attendance, and Approvals safely
     if (liveData.students.length > 0) {
       const studentIds = liveData.students.map(s => s.id);
@@ -1142,34 +1147,95 @@ async function undoApproval(studentId, eventType, role) {
   }
 }
 
+// Toggle a student's attendance acknowledgment
+async function toggleAttendanceAck(recordId, currentState) {
+  const { error } = await supabaseClient
+    .from('attendance')
+    .update({ student_acknowledged: !currentState }) // Flips true to false, or false to true
+    .eq('id', recordId);
+    
+  if (error) {
+    alert("Error updating record: " + error.message);
+  } else {
+    refreshDataSilently(); // Triggers the live visual update instantly!
+  }
+}
+
 /* ============================================================
    STUDENT
    ============================================================ */
 function studentTab(){
-  const s = student(state.userId);
-  if(state.tab==='map') return liveMapBlock(s.busId, false, s);
-  if(state.tab==='transport') return `
-    <div class="card card-pad" style="margin-bottom:16px;">
-      <div class="section-title"><h3>Morning</h3></div>
-      ${morningSteps(s,'view')}
-    </div>
-    <div class="card card-pad">
-      <div class="section-title"><h3>Afternoon</h3></div>
-      ${eveningSteps(s,'view')}
-    </div>
-  `;
+  const s = liveData.students[0]; 
+  
+  if (!s) return `<div class="empty">Your student record is not fully configured yet.</div>`;
+  if (state.tab === 'map') return liveMapBlock(s.bus_id, false, s);
+
+  // VIEW 1: MY TRANSPORT (Read-Only Live Timeline)
+  if (state.tab === 'transport') {
+    const sBus = bus(s.bus_id);
+    const sLogs = liveData.transitLogs.filter(l => l.student_id === s.id);
+    const sApprovals = (liveData.transitApprovals || []).filter(a => a.student_id === s.id);
+    
+    // Status Checks
+    const dMornPick = sLogs.some(l => l.event_type === 'morning_pickup');
+    const dMornDrop = sLogs.some(l => l.event_type === 'school_drop');
+    const dEvePick = sLogs.some(l => l.event_type === 'school_pickup');
+    const dEveDrop = sLogs.some(l => l.event_type === 'home_drop');
+    
+    const pMorn = sApprovals.some(a => a.event_type === 'morning_pickup' && a.approved_by_role === 'parent');
+    const pEve = sApprovals.some(a => a.event_type === 'home_drop' && a.approved_by_role === 'parent');
+    const tMorn = sApprovals.some(a => a.event_type === 'school_drop' && a.approved_by_role === 'teacher');
+    const tEve = sApprovals.some(a => a.event_type === 'school_pickup' && a.approved_by_role === 'teacher');
+
+    return `
+    <div class="card card-pad" style="margin-bottom:18px;">
+      <div class="section-title">
+        <h3 class="row-flex"><span class="avatar">${s.name.substring(0,2).toUpperCase()}</span>My Transport Timeline</h3>
+        <span class="count">${sBus.name}</span>
+      </div>
+      
+      <div class="stu-sub" style="margin:0 0 4px; font-weight:600; color:var(--sub);">MORNING: HOME TO SCHOOL</div>
+      ${stepper([
+        { label: 'Driver picked up', state: dMornPick ? 'done' : 'pending' },
+        { label: 'Parent confirms', state: pMorn ? 'done' : (dMornPick ? 'pending' : 'locked') },
+        { label: 'Driver dropped', state: dMornDrop ? 'done' : (pMorn ? 'pending' : 'locked') },
+        { label: 'Teacher confirms', state: tMorn ? 'done' : (dMornDrop ? 'pending' : 'locked') }
+      ])}
+      
+      <div class="stu-sub" style="margin:14px 0 4px; font-weight:600; color:var(--sub);">EVENING: SCHOOL TO HOME</div>
+      ${stepper([
+        { label: 'Driver picked up', state: dEvePick ? 'done' : 'pending' },
+        { label: 'Teacher confirms', state: tEve ? 'done' : (dEvePick ? 'pending' : 'locked') },
+        { label: 'Driver dropped', state: dEveDrop ? 'done' : (tEve ? 'pending' : 'locked') },
+        { label: 'Parent confirms', state: pEve ? 'done' : (dEveDrop ? 'pending' : 'locked') }
+      ])}
+    </div>`;
+  }
+
+  // VIEW 2: MY DAY (Attendance Acknowledgment)
   return `
+    <div class="flow-note">● Acknowledge your attendance records for today once your teacher marks them.</div>
     <div class="grid g3">
-      ${['p1','p2','p3'].map(p=>{
-        const a=s.attendance[p];
-        const cls = !a.status?'pending':(a.status==='Present'?'done':(a.status==='Absent'?'absent':'wait'));
-        return `<div class="card card-pad">
-          <div class="stu-sub">${a.label}</div>
-          <div style="margin:10px 0;">${a.status?badge(a.status,cls):badge('Not marked yet','pending')}</div>
-          <div style="font-size:11.5px; color:var(--faint); margin-bottom:10px;">Teacher approved: ${a.teacherApproved?'Yes':'Not yet'}</div>
-          <button class="mini-btn ${a.teacherApproved && !a.studentApproved ? 'amber':'ghost'}" ${!a.teacherApproved||a.studentApproved?'disabled':''} onclick="studentApproveAttendance('${s.id}','${p}')">
-            ${a.studentApproved?'✓ Acknowledged':'Acknowledge'}
-          </button>
+      ${['p1','p2','p3'].map(p => {
+        const attRecord = (liveData.attendance || []).find(a => a.period === p);
+        const status = attRecord ? attRecord.status : null;
+        const isAck = attRecord ? attRecord.student_acknowledged : false;
+        
+        const cls = !status ? 'pending' : (status === 'Present' ? 'done' : (status === 'Absent' ? 'absent' : 'wait'));
+        
+        return `
+        <div class="card card-pad">
+          <div class="stu-sub">Period ${p.replace('p', '')}</div>
+          <div style="margin:10px 0;">${status ? badge(status, cls) : badge('Not marked yet', 'pending')}</div>
+          
+          <div style="margin-top:14px;">
+            ${status ? 
+              `<button class="mini-btn ${isAck ? 'ghost' : 'amber'}" onclick="toggleAttendanceAck('${attRecord.id}', ${isAck})">
+                ${isAck ? 'Undo Acknowledgment' : 'Acknowledge Record'}
+               </button>` 
+              : `<button class="mini-btn ghost" disabled>Waiting for Teacher...</button>`
+            }
+          </div>
         </div>`;
       }).join('')}
     </div>
