@@ -420,13 +420,10 @@ function showRoleSelection() {
    LIVE DATA MANAGEMENT
    ============================================================ */
 let liveData = {
-  schools: [],
-  profiles: [],
-  buses: [],
-  students: [],
-  transitLogs: [],
-  attendance: [],
-	maintenance: [], locationRequests: []
+  schools: [], profiles: [], buses: [], students: [], 
+  transitLogs: [], attendance: [], transitApprovals: [],
+  maintenance: [], locationRequests: [], 
+  incidents: [], substitutions: [] // <-- ADD THESE TWO
 };
 
 async function fetchDashboardData(schoolId, role, userId) {
@@ -490,6 +487,13 @@ async function fetchDashboardData(schoolId, role, userId) {
 
     const { data: locReqs } = await supabaseClient.from('location_requests').select('*');
     liveData.locationRequests = locReqs || [];
+	
+// 7. Fetch Incidents & Substitutions
+    const { data: inc } = await supabaseClient.from('incidents').select('*');
+    liveData.incidents = inc || [];
+
+    const { data: sub } = await supabaseClient.from('substitutions').select('*');
+    liveData.substitutions = sub || [];
 
     console.log("Data successfully loaded:", liveData);
     
@@ -774,18 +778,160 @@ async function saveLocationRequest(studentId, parentId) {
   refreshDataSilently();
 }
 
-
-// Vehicle Substitution Actions
-function createSubstitution(originalBusId, replacementBusId, reason){
-  DB.substitutions.unshift({
-    id: 'sub' + (DB.substitutions.length + 1),
-    originalBusId, replacementBusId, reason,
-    startDate: new Date().toISOString().split('T')[0], status: 'Active'
-  });
-  refresh();
+// --- INCIDENT ACTIONS ---
+async function submitIncident(busId, driverId, severity, description) {
+  if (!busId) return alert("No bus assigned.");
+  const { error } = await supabaseClient.from('incidents').insert([{ bus_id: busId, driver_id: driverId, severity, description }]);
+  if (error) alert("Error reporting incident: " + error.message);
+  else refreshDataSilently();
 }
 
+async function updateIncidentStatus(id, newStatus) {
+  const { error } = await supabaseClient.from('incidents').update({ status: newStatus }).eq('id', id);
+  if (error) alert("Error updating incident: " + error.message);
+  else refreshDataSilently();
+}
+
+// --- SUBSTITUTION ACTIONS ---
+async function submitSubstitution(originalBusId, replacementBusId, reason) {
+  if (!originalBusId || !replacementBusId) return alert("Please select both buses.");
+  const { error } = await supabaseClient.from('substitutions').insert([{ original_bus_id: originalBusId, replacement_bus_id: replacementBusId, reason }]);
+  if (error) alert("Error saving substitution: " + error.message);
+  else refreshDataSilently();
+}
+
+async function resolveSubstitution(id) {
+  const { error } = await supabaseClient.from('substitutions').update({ status: 'Resolved' }).eq('id', id);
+  if (error) alert("Error updating substitution: " + error.message);
+  else refreshDataSilently();
+}
 function refresh(){ renderMain(); }
+/* ============================================================
+   INCIDENTS VIEW
+   ============================================================ */
+function incidentsView() {
+  const isDriver = state.role === 'driver';
+  const myBus = liveData.buses.find(b => b.driver_id === state.userId);
+  const isPTA = state.role === 'pta';
+  
+  return `
+    ${isDriver ? `
+      <div class="card card-pad" style="margin-bottom: 20px;">
+        <div class="section-title"><h3>Report Route Incident</h3></div>
+        <select id="inc-sev" class="att-select" style="margin-bottom:12px; width:100%;">
+          <option value="Traffic/Delay">Traffic / Delay</option>
+          <option value="Accident">Accident</option>
+          <option value="Behavioral">Student Behavior</option>
+        </select>
+        <textarea id="inc-desc" placeholder="Describe the situation..." style="width:100%; height:80px; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:12px; font-family:inherit;"></textarea>
+        <button class="btn-primary" style="background:var(--coral); color:#fff;" onclick="submitIncident('${myBus?.id}', '${state.userId}', document.getElementById('inc-sev').value, document.getElementById('inc-desc').value)">Alert Operations</button>
+      </div>
+    ` : ''}
+    
+    <div class="card card-pad">
+      <div class="section-title"><h3>Incident Log</h3><span class="count">${isPTA ? 'Sanitized View' : ''}</span></div>
+      ${liveData.incidents.length === 0 ? `<div class="empty">No incidents reported.</div>` : `
+        <table style="width:100%; text-align:left; border-collapse: collapse;">
+          <tr style="font-size: 12px; color: var(--sub);">
+            <th style="padding:8px; border-bottom:1px solid #eee;">BUS / SEVERITY</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">DESCRIPTION</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">STATUS</th>
+            ${(state.role === 'admin' || state.role === 'transport_manager') ? `<th style="padding:8px; border-bottom:1px solid #eee;">ACTION</th>` : ''}
+          </tr>
+          ${liveData.incidents.map(inc => {
+            const bName = bus(inc.bus_id).name;
+            return `
+            <tr>
+              <td style="padding:12px 8px; border-bottom:1px solid #eee;"><b>${bName}</b><br><span style="font-size:12px; color:var(--sub);">${inc.severity}</span></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #eee;">${isPTA ? '<i>[Details hidden for privacy]</i>' : inc.description}</td>
+              <td style="padding:12px 8px; border-bottom:1px solid #eee;">${badge(inc.status, inc.status === 'Resolved' ? 'done' : 'absent')}</td>
+              ${(state.role === 'admin' || state.role === 'transport_manager') ? `
+                <td style="padding:12px 8px; border-bottom:1px solid #eee;">
+                  ${inc.status === 'Open' ? `<button class="mini-btn ghost" onclick="updateIncidentStatus('${inc.id}', 'Resolved')">Resolve</button>` : ''}
+                </td>
+              ` : ''}
+            </tr>`
+          }).join('')}
+        </table>
+      `}
+    </div>
+  `;
+}
+
+/* ============================================================
+   SUBSTITUTIONS VIEW
+   ============================================================ */
+function substitutionsView() {
+  const isManager = state.role === 'admin' || state.role === 'transport_manager';
+  
+  return `
+    ${isManager ? `
+      <div class="card card-pad" style="margin-bottom: 20px;">
+        <div class="section-title"><h3>Reassign Route (Substitution)</h3></div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+          <select id="sub-orig" class="att-select">
+            <option disabled selected value="">Select Original Bus...</option>
+            ${liveData.buses.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}
+          </select>
+          <select id="sub-rep" class="att-select">
+            <option disabled selected value="">Select Replacement Bus...</option>
+            ${liveData.buses.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}
+          </select>
+        </div>
+        <input type="text" id="sub-reason" placeholder="Reason (e.g., Breakdown, Driver Sick)" style="width:100%; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:12px;">
+        <button class="btn-primary" onclick="submitSubstitution(document.getElementById('sub-orig').value, document.getElementById('sub-rep').value, document.getElementById('sub-reason').value)">Activate Substitution</button>
+      </div>
+    ` : ''}
+    
+    <div class="card card-pad">
+      <div class="section-title"><h3>Active & Past Substitutions</h3></div>
+      ${liveData.substitutions.length === 0 ? `<div class="empty">No substitutions logged.</div>` : `
+        <table style="width:100%; text-align:left; border-collapse: collapse;">
+          <tr style="font-size: 12px; color: var(--sub);">
+            <th style="padding:8px; border-bottom:1px solid #eee;">ORIGINAL BUS</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">REPLACEMENT</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">REASON & STATUS</th>
+            ${isManager ? `<th style="padding:8px; border-bottom:1px solid #eee;">ACTION</th>` : ''}
+          </tr>
+          ${liveData.substitutions.map(sub => `
+            <tr>
+              <td style="padding:12px 8px; border-bottom:1px solid #eee;"><b>${bus(sub.original_bus_id).name}</b></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #eee;"><b>${bus(sub.replacement_bus_id).name}</b></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #eee;">${sub.reason}<br>${badge(sub.status, sub.status === 'Active' ? 'wait' : 'done')}</td>
+              ${isManager ? `
+                <td style="padding:12px 8px; border-bottom:1px solid #eee;">
+                  ${sub.status === 'Active' ? `<button class="mini-btn ghost" onclick="resolveSubstitution('${sub.id}')">End Substitution</button>` : ''}
+                </td>
+              ` : ''}
+            </tr>`
+          }).join('')}
+        </table>
+      `}
+    </div>
+  `;
+}
+
+/* ============================================================
+   PTA OVERVIEW
+   ============================================================ */
+function ptaOverview() {
+  const activeIssues = liveData.maintenance.filter(m => m.status !== 'Completed').length;
+  const activeIncidents = liveData.incidents.filter(i => i.status === 'Open').length;
+  
+  return `
+    <div class="flow-note">👥 PTA Community Dashboard — Viewing sanitized, high-level aggregate metrics for fleet safety and reliability.</div>
+    <div class="grid g2">
+      <div class="card stat-card" style="border-left:4px solid var(--teal);"><div class="label">Fleet Reliability Status</div><div class="value">${activeIssues}</div><div class="sub">Active Maintenance Tickets</div></div>
+      <div class="card stat-card" style="border-left:4px solid var(--amber);"><div class="label">Current Operational Alerts</div><div class="value">${activeIncidents}</div><div class="sub">Open Safety / Route Incidents</div></div>
+    </div>
+    <div class="card card-pad" style="margin-top:20px;">
+      <div class="section-title"><h3>Community Noticeboard</h3></div>
+      <div class="empty" style="padding:40px;">No critical community announcements at this time. All buses are operating normally.</div>
+    </div>
+  `;
+}
+
+
 
 /* ============================================================
    TRANSIT STEPPER — signature component
@@ -881,7 +1027,10 @@ function renderMain(){
   } else if(state.role === 'student') {
     body.innerHTML = studentTab();
   } else if(state.role === 'pta') {
-    body.innerHTML = adminOverview();
+    if(state.tab === 'overview') body.innerHTML = ptaOverview();
+    else if(state.tab === 'incidents') body.innerHTML = incidentsView();
+    else if(state.tab === 'calendar') body.innerHTML = calendarView();
+    else body.innerHTML = ptaOverview();
   }
 
   if(state.tab==='map'){ setTimeout(initMap, 30); }
@@ -931,8 +1080,8 @@ function adminTab(){
   // These tabs need safe placeholders so they don't crash
   if(state.tab === 'calendar') return calendarView();
   if(state.tab === 'map' || state.tab === 'fleetMap') return fleetMapSafe();
-  if(state.tab === 'substitutions') return placeholderView('Substitutions', 'Manage driver and vehicle substitutions here.');
-  if(state.tab === 'incidents') return placeholderView('Incidents', 'View and manage reported incidents here.');
+ if(state.tab === 'substitutions') return substitutionsView();
+  if(state.tab === 'incidents') return incidentsView();
   
   return adminOverview(); // Fallback
 }
@@ -1665,6 +1814,8 @@ function setupRealtime() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, payload => refreshDataSilently())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'maintenance_requests' }, payload => refreshDataSilently())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'location_requests' }, payload => refreshDataSilently())
+.on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, payload => refreshDataSilently())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'substitutions' }, payload => refreshDataSilently())
     .subscribe();
 }
 
