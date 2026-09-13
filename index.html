@@ -1574,7 +1574,6 @@ function maintenanceView(){
   const isDriver = state.role === 'driver';
   const myBus = liveData.buses.find(b => b.driver_id === state.userId);
   
-  // Security & UI fix: Make sure the Driver only sees their own bus's tickets!
   const myReqs = isDriver 
     ? liveData.maintenance.filter(m => m.bus_id === myBus?.id) 
     : liveData.maintenance;
@@ -1588,7 +1587,7 @@ function maintenanceView(){
           <select id="m-sev" class="att-select"><option value="Low">Low</option><option value="Medium">Medium</option><option value="High">High / Urgent</option></select>
         </div>
         <textarea id="m-desc" placeholder="Describe the issue..." style="width:100%; height:80px; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:12px; font-family:inherit;"></textarea>
-        <button id="m-btn" class="btn-primary" onclick="saveMaintenanceRequest('${myBus?.id}', '${state.userId}')">Submit Request</button>
+        <button id="m-btn" class="btn-primary" onclick="saveMaintenanceRequest('${myBus?.id || ''}', '${state.userId}')">Submit Request</button>
       </div>
     ` : ''}
     
@@ -1602,7 +1601,11 @@ function maintenanceView(){
             <th style="padding:8px; border-bottom:1px solid #eee;">STATUS</th>
             ${isDriver ? `<th style="padding:8px; border-bottom:1px solid #eee;">ACTION</th>` : ''}
           </tr>
-          ${myReqs.map(m => `
+          ${myReqs.map(m => {
+            // Safely escape the description BEFORE passing it to the HTML button
+            const safeDesc = (m.description || '').replace(/'/g, "\\'").replace(/[\r\n]+/g, " ");
+            
+            return `
             <tr>
               <td style="padding:12px 8px; border-bottom:1px solid #eee;"><b>${bus(m.bus_id).name}</b><br><span style="font-size:12px; color:var(--sub);">${m.category} — ${m.description || ''}</span></td>
               <td style="padding:12px 8px; border-bottom:1px solid #eee;"><span class="badge ${m.severity==='High'?'absent':(m.severity==='Medium'?'wait':'pending')}">${m.severity}</span></td>
@@ -1610,19 +1613,18 @@ function maintenanceView(){
               ${isDriver ? `
                 <td style="padding:12px 8px; border-bottom:1px solid #eee;">
                   ${m.status !== 'Completed' ? `
-  <button class="mini-btn ghost" onclick="startEditMaintenance('${m.id}', '${m.category}', '${m.severity}', '${(m.description || '').replace(/'/g, "\\'").replace(/[\r\n]+/g, " ")}')">✏️</button>
-  <button class="mini-btn ghost" onclick="deleteMaintenanceRequest('${m.id}')">🗑️</button>
-` : `<span style="font-size:11px; color:var(--faint);">Locked</span>`}
+                    <button class="mini-btn ghost" onclick="startEditMaintenance('${m.id}', '${m.category}', '${m.severity}', '${safeDesc}')">✏️</button>
+                    <button class="mini-btn ghost" onclick="deleteMaintenanceRequest('${m.id}')">🗑️</button>
+                  ` : `<span style="font-size:11px; color:var(--faint);">Locked</span>`}
                 </td>
               ` : ''}
-            </tr>
-          `).join('')}
+            </tr>`
+          }).join('')}
         </table>
       `}
     </div>
   `;
 }
-
 /* ============================================================
    LOCATION CHANGE REQUESTS VIEW
    ============================================================ */
@@ -1640,7 +1642,7 @@ function locationRequestsView(){
         <div class="section-title"><h3>Request Stop Change</h3></div>
         <input type="text" id="lr-stop" placeholder="Requested New Stop" style="width:100%; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:10px;">
         <textarea id="lr-reason" placeholder="Reason..." style="width:100%; height:70px; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:12px; font-family:inherit;"></textarea>
-        <button id="lr-btn" class="btn-primary" onclick="saveLocationRequest('${child?.id}', '${state.userId}')">Submit</button>
+        <button id="lr-btn" class="btn-primary" onclick="saveLocationRequest('${child?.id || ''}', '${state.userId}')">Submit</button>
       </div>
     ` : ''}
     
@@ -1654,7 +1656,12 @@ function locationRequestsView(){
             <th style="padding:8px; border-bottom:1px solid #eee;">STATUS</th>
             ${isParent ? `<th style="padding:8px; border-bottom:1px solid #eee;">ACTION</th>` : ''}
           </tr>
-          ${myReqs.map(r => `
+          ${myReqs.map(r => {
+            // Safely escape the strings BEFORE passing them to the HTML button
+            const safeStop = (r.requested_stop || '').replace(/'/g, "\\'");
+            const safeReason = (r.reason || '').replace(/'/g, "\\'").replace(/[\r\n]+/g, " ");
+            
+            return `
             <tr>
               <td style="padding:12px 8px; border-bottom:1px solid #eee;"><b>${r.requested_stop}</b></td>
               <td style="padding:12px 8px; border-bottom:1px solid #eee;">${r.reason || ''}</td>
@@ -1662,13 +1669,13 @@ function locationRequestsView(){
               ${isParent ? `
                 <td style="padding:12px 8px; border-bottom:1px solid #eee;">
                   ${r.status === 'Pending' ? `
-  <button class="mini-btn ghost" onclick="startEditLocation('${r.id}', '${(r.requested_stop || '').replace(/'/g, "\\'")}', '${(r.reason || '').replace(/'/g, "\\'").replace(/[\r\n]+/g, " ")}')">✏️</button>
-  <button class="mini-btn ghost" onclick="deleteLocationRequest('${r.id}')">🗑️</button>
-` : `<span style="font-size:11px; color:var(--faint);">Locked</span>`}
+                    <button class="mini-btn ghost" onclick="startEditLocation('${r.id}', '${safeStop}', '${safeReason}')">✏️</button>
+                    <button class="mini-btn ghost" onclick="deleteLocationRequest('${r.id}')">🗑️</button>
+                  ` : `<span style="font-size:11px; color:var(--faint);">Locked</span>`}
                 </td>
               ` : ''}
-            </tr>
-          `).join('')}
+            </tr>`
+          }).join('')}
         </table>
       `}
     </div>
