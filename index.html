@@ -433,12 +433,20 @@ async function fetchDashboardData(schoolId, role, userId) {
   console.log("Fetching live data for role:", role);
   
   try {
+// 0. Fetch all schools (Super Admin needs this to see the network)
+    if (role === 'super_admin') {
+      const { data: schools } = await supabaseClient.from('schools').select('*');
+      liveData.schools = schools || [];
+    }
     // 1. Fetch Buses for this school
     const { data: buses } = await supabaseClient
       .from('buses')
       .select('*')
       .eq('school_id', schoolId);
     liveData.buses = buses || [];
+// 1.5 Fetch Profiles (Needed for Admin to see teachers)
+    const { data: profiles } = await supabaseClient.from('profiles').select('*').eq('school_id', schoolId);
+    liveData.profiles = profiles || [];
 
 // 2. Fetch Students
     let studentQuery = supabaseClient.from('students').select('*').eq('school_id', schoolId);
@@ -476,7 +484,7 @@ async function fetchDashboardData(schoolId, role, userId) {
       liveData.attendance = (att || []).filter(a => a.date === today || (a.created_at && a.created_at.startsWith(today)));
     } // <--- Notice the closing bracket is HERE now
 
-    // 6. Fetch Maintenance & Location Requests (Available to everyone, especially Admins!)
+    // 6. Fetch Maintenance & Location Requests (AVAILABLE TO EVERYONE)
     const { data: maint } = await supabaseClient.from('maintenance_requests').select('*');
     liveData.maintenance = maint || [];
 
@@ -808,27 +816,14 @@ function todayStr(){ return new Date().toLocaleDateString([], {weekday:'long', m
    ============================================================ */
 function superAdminTab(){
   return `
-    <div class="flow-note">🏢 As a Super Admin, you monitor fleet performance across all campuses. Click into any school to assume standard Admin privileges for that specific campus.</div>
-    
+    <div class="flow-note">🏢 As a Super Admin, you monitor fleet performance across all campuses.</div>
     <div class="card card-pad" style="margin-bottom:20px;">
-      <div class="section-title"><h3>Multi-School Network Overview</h3><span class="count">${DB.schools.length} Campuses</span></div>
-      
+      <div class="section-title"><h3>Multi-School Network Overview</h3><span class="count">${liveData.schools.length} Campuses</span></div>
+      ${liveData.schools.length === 0 ? '<div class="empty">No schools found in the network.</div>' : ''}
       <div class="grid g3">
-        ${DB.schools.map(sch => `
-          <div class="card card-pad" style="box-shadow:none; border:1px solid ${sch.alerts > 0 ? '#E5484D' : '#E6E9F2'}; cursor:pointer; transition:.2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'" onclick="alert('In a real app, this would switch your session context to ${sch.name} and load the School Admin dashboard.')">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-              <div style="font-size:12px; color:var(--indigo); font-weight:700; font-family:'IBM Plex Mono';">ID: ${sch.id.toUpperCase()}</div>
-              ${sch.alerts > 0 ? `<span class="badge absent">${sch.alerts} Alerts</span>` : `<span class="badge done">All Clear</span>`}
-            </div>
-            
+        ${liveData.schools.map(sch => `
+          <div class="card card-pad">
             <h4 style="margin:10px 0 6px; font-size:18px;">${sch.name}</h4>
-            
-            <div style="font-size:13px; color:var(--sub); margin-top:8px; line-height:1.6;">
-              <b>${sch.totalStudents}</b> Enrolled Students<br>
-              <b>${sch.activeBuses}</b> Active Transport Fleet
-            </div>
-            
-            <button class="mini-btn ghost" style="margin-top:16px; width:100%;">Enter Campus →</button>
           </div>
         `).join('')}
       </div>
@@ -842,10 +837,30 @@ function superAdminTab(){
    ============================================================ */
 function adminTab(){
   if(state.tab === 'overview') return adminOverview();
-  if(state.tab === 'register') return adminRegister();
-  if(state.tab === 'map') return liveMapBlock(null, true); // True to show all buses on the map
+  
+  // These tabs reuse the views we just built!
+  if(state.tab === 'attendance' || state.tab === 'register') return adminRegister();
+  if(state.tab === 'maintenance') return maintenanceView();
+  if(state.tab === 'location_requests' || state.tab === 'location') return locationRequestsView();
+  
+  // These tabs need safe placeholders so they don't crash
+  if(state.tab === 'calendar') return calendarView();
+  if(state.tab === 'map' || state.tab === 'fleetMap') return fleetMapSafe();
+  if(state.tab === 'substitutions') return placeholderView('Substitutions', 'Manage driver and vehicle substitutions here.');
+  if(state.tab === 'incidents') return placeholderView('Incidents', 'View and manage reported incidents here.');
+  
+  return adminOverview(); // Fallback
 }
 
+// A handy function to create clean, crash-free placeholder pages
+function placeholderView(title, desc) {
+  return `
+    <div class="card card-pad">
+      <div class="section-title"><h3>${title}</h3></div>
+      <div class="empty">${desc} <br><br><em>(Database integration coming soon)</em></div>
+    </div>
+  `;
+}
 /* ============================================================
    ADMIN OVERVIEW (Stats, Student Status, Tickets)
    ============================================================ */
@@ -1397,49 +1412,25 @@ function calendarView(){
   return `
     <div class="card card-pad">
       <div class="section-title"><h3>School & Transport Calendar</h3></div>
-      <div class="grid g2">
-        ${DB.calendar.map(c => `
-          <div class="card card-pad" style="box-shadow:none; border:1px solid #E6E9F2;">
-            <div style="font-size:12px; color:var(--indigo); font-weight:700;">${c.date} · ${c.type}</div>
-            <h4 style="margin:6px 0; font-size:16px;">${c.title}</h4>
-            <div style="font-size:12px; color:var(--sub);">Applies to: ${c.scope}</div>
-          </div>
-        `).join('')}
+      <div class="empty">Live Calendar database integration coming soon.</div>
+    </div>
+  `;
+}
+
+function fleetMapSafe(){
+  return `
+    <div class="card card-pad">
+      <div class="section-title"><h3>Live Fleet Map</h3></div>
+      <div class="empty" style="height:300px; display:flex; align-items:center; justify-content:center; background:#f8fafc; border-radius:8px;">
+        📍 Live GPS map integration requires a Mapbox or Google Maps API key.
       </div>
     </div>
   `;
 }
 
-/* ============================================================
-   MAP MOCKUP  (simulated GPS — no external map API)
-   ============================================================ */
-function fleetMapBlock(){
-  return `
-    <div class="card card-pad">
-      <div class="section-title"><h3>Fleet — simulated live positions</h3><span class="count">${DB.buses.length} buses on route</span></div>
-      <div class="map-wrap"><canvas id="mapCanvas" class="map-canvas"></canvas>
-        <div class="map-badge"><span class="p"></span>SIMULATED GPS</div>
-        <div class="map-note">Mockup only — not connected to Google Maps</div>
-      </div>
-      <div class="grid g2" style="margin-top:16px;">
-        ${DB.buses.map(b=>`<div class="card card-pad" style="box-shadow:none; border:1px solid #E6E9F2;">
-          <div class="stu-name">${b.name}</div>
-          <div class="stu-sub">Driver: ${driver(b.driverId).name} · ${studentsForBus(b.id).length} students</div>
-        </div>`).join('')}
-      </div>
-    </div>`;
-}
-function liveMapBlock(busId, isDriver, forStudent){
-  const b = bus(busId);
-  return `
-    <div class="card card-pad">
-      <div class="section-title"><h3>${b.name}${forStudent ? ' · '+forStudent.name : ''}</h3><span class="count">Driver: ${driver(b.driverId).name}</span></div>
-      <div class="map-wrap"><canvas id="mapCanvas" class="map-canvas" data-bus="${busId}"></canvas>
-        <div class="map-badge"><span class="p"></span>SIMULATED GPS</div>
-        <div class="map-note">Mockup only — not connected to Google Maps</div>
-      </div>
-      <div class="eta-strip" id="etaStrip"></div>
-    </div>`;
+// Replace your old liveMapBlock with this safe fallback so it doesn't crash the driver view either!
+function liveMapBlock(busId, isAll, student){
+  return fleetMapSafe();
 }
 
 let mapAnim = null;
@@ -1454,7 +1445,7 @@ function initMap(){
   const W = rect.width, H = rect.height;
 
   const targetBusId = canvas.dataset.bus || null;
-  const busesToDraw = targetBusId ? [bus(targetBusId)] : DB.buses;
+ const busesToDraw = targetBusId ? [bus(targetBusId)] : liveData.buses;
 
   // give each bus a road path (simple curve) across the canvas
   const paths = busesToDraw.map((b,idx)=>{
