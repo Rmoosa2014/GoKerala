@@ -964,7 +964,7 @@ function tabsForRole(role){
   return {
     super_admin:       [['schools','🏢 All Schools'], ['global_reports','📊 Global Reports']],
     admin:             [['overview','◎ Overview'], ['register','▤ Attendance'], ['maintenance','🔧 Maintenance'], ['substitutions','🔄 Substitutions'], ['requests','📍 Location Requests'], ['incidents','⚠️ Incidents'], ['calendar','📅 Calendar'], ['map','◈ Fleet Map']],
-    clerk: [['staff','⌨️ Staff Directory'], ['students','🎓 Student Roster'], ['parents','👪 Parents'], ['fleet','🚌 Fleet Setup']],
+    clerk: [['staff','⌨️ Staff Directory'], ['students','🎓 Student Roster'], ['parents','👪 Parents'], ['fleet','🚌 Fleet Setup'], ['routes','📍 Route Builder']],
     transport_manager: [['overview','◎ Fleet Status'], ['maintenance','🔧 Maintenance'], ['substitutions','🔄 Substitutions'], ['requests','📍 Location Requests'], ['incidents','⚠️ Incidents'], ['map','◈ Live Fleet']],
     driver:            [['route','▤ My Route'], ['maintenance_req','🔧 Report Issue'], ['incidents_req','⚠️ Report Incident'], ['map','◈ Live Map']],
     parent:            [['child','⌂ My Child'], ['location_change','📍 Request Stop Change'], ['attendance','✎ Attendance'], ['calendar','📅 Calendar'], ['map','◈ Bus Tracker']],
@@ -1085,10 +1085,10 @@ function clerkDashboardView() {
   if (currentTab === 'students') return studentCRMView();
   if (currentTab === 'parents') return parentCRMView();
   if (currentTab === 'fleet') return fleetCRMView();
+  if (currentTab === 'routes') return routeBuilderView(); // <-- ADD THIS LINE
   
   return ''; 
 }
-
 
 /* ============================================================
    STAFF CRM
@@ -1353,6 +1353,92 @@ function fleetCRMView() {
       `}
     </div>
   `;
+}
+
+
+/* ============================================================
+   ROUTE BUILDER CRM
+   ============================================================ */
+function routeBuilderView() {
+  // Let the user select which bus they are building a route for
+  const selectedBusId = state.selectedRouteBus || (liveData.buses[0] ? liveData.buses[0].id : null);
+  
+  // Filter stops for the selected bus and sort them by order
+  const stops = liveData.routes.filter(r => r.bus_id === selectedBusId).sort((a, b) => a.stop_order - b.stop_order);
+  const nextOrderNumber = stops.length + 1;
+
+  return `
+    <div class="flow-note">📍 <b>Logical Route Builder:</b> Define pickup/drop sequences. The system automatically adds a 3-minute safety buffer to your estimated drive times.</div>
+    
+    <div class="card card-pad" style="margin-bottom: 20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <div class="section-title" style="margin:0;"><h3>Select Fleet Vehicle</h3></div>
+        <select class="att-select" style="padding:8px 16px; border-radius:8px;" onchange="state.selectedRouteBus = this.value; renderMain();">
+          ${liveData.buses.map(b => `<option value="${b.id}" ${b.id === selectedBusId ? 'selected' : ''}>${b.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+
+    ${selectedBusId ? `
+      <div class="card card-pad" style="margin-bottom: 20px;">
+        <div class="section-title"><h3>Add New Stop (Stop #${nextOrderNumber})</h3></div>
+        <div class="grid g3" style="margin-bottom: 16px;">
+          <div style="grid-column: span 2;"><span class="field-label">Stop Name / Location</span><input type="text" id="r-stop" placeholder="e.g. Main Street Intersection"></div>
+          <div><span class="field-label">Drive Time from Previous Stop (Mins)</span><input type="number" id="r-time" placeholder="e.g. 10" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);"></div>
+        </div>
+        <button class="btn-primary" onclick="saveNewRouteStop('${selectedBusId}', ${nextOrderNumber}, ${stops.length > 0 ? stops[stops.length-1].est_time_from_start : 0})">Add Stop to Route</button>
+      </div>
+
+      <div class="card card-pad">
+        <div class="section-title"><h3>Sequence Timeline</h3><span class="count">${stops.length} Stops</span></div>
+        ${stops.length === 0 ? `<div class="empty">No stops added yet. The first stop usually has a drive time of 0.</div>` : `
+          <table style="width:100%; text-align:left; border-collapse: collapse;">
+            <tr style="font-size: 12px; color: var(--sub);">
+              <th style="padding:8px; border-bottom:1px solid #eee;">ORDER</th>
+              <th style="padding:8px; border-bottom:1px solid #eee;">STOP NAME</th>
+              <th style="padding:8px; border-bottom:1px solid #eee;">CUMULATIVE TIME (+3m buffers)</th>
+            </tr>
+            ${stops.map(s => `
+              <tr>
+                <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><b>#${s.stop_order}</b></td>
+                <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;"><b>${s.stop_name}</b></td>
+                <td style="padding:12px 8px; border-bottom:1px solid #f5f5f5;">${s.est_time_from_start} minutes from start</td>
+              </tr>
+            `).join('')}
+          </table>
+        `}
+      </div>
+    ` : '<div class="empty">Please register a bus in the Fleet Setup tab first.</div>'}
+  `;
+}
+
+/* ============================================================
+   ROUTE ALGORITHM ACTION
+   ============================================================ */
+async function saveNewRouteStop(busId, orderNum, previousCumulativeTime) {
+  const stopName = document.getElementById('r-stop').value.trim();
+  const inputDriveTime = parseInt(document.getElementById('r-time').value) || 0;
+
+  if (!stopName) return alert("Stop Name is required!");
+
+  // ALGORITHM: If this is the first stop, time is 0. 
+  // Otherwise, add the drive time + 3 min safety delay to the running total.
+  const safetyBuffer = orderNum === 1 ? 0 : 3;
+  const totalCalculatedTime = previousCumulativeTime + inputDriveTime + safetyBuffer;
+
+  const { error } = await supabaseClient.from('routes').insert([{
+    bus_id: busId,
+    stop_name: stopName,
+    stop_order: orderNum,
+    est_time_from_start: totalCalculatedTime
+  }]);
+
+  if (error) {
+    alert("Error saving route stop: " + error.message);
+  } else {
+    await fetchDashboardData(state.schoolId, state.role, state.userId);
+    renderMain();
+  }
 }
 
 
