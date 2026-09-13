@@ -425,7 +425,8 @@ let liveData = {
   buses: [],
   students: [],
   transitLogs: [],
-  attendance: []
+  attendance: [],
+	maintenance: [], locationRequests: []
 };
 
 async function fetchDashboardData(schoolId, role, userId) {
@@ -460,7 +461,7 @@ async function fetchDashboardData(schoolId, role, userId) {
 // 3, 4 & 5. Fetch Today's Logs, Attendance, and Approvals safely
     if (liveData.students.length > 0) {
       const studentIds = liveData.students.map(s => s.id);
-      const today = new Date().toISOString().split('T')[0]; // e.g., "2026-09-13"
+      const today = new Date().toISOString().split('T')[0];
       
       // Fetch all records for these students
       const { data: logs } = await supabaseClient.from('transit_logs').select('*').in('student_id', studentIds);
@@ -473,7 +474,14 @@ async function fetchDashboardData(schoolId, role, userId) {
       
       // Attendance explicitly uses the 'date' column from our upsert earlier
       liveData.attendance = (att || []).filter(a => a.date === today || (a.created_at && a.created_at.startsWith(today)));
-    }
+    } // <--- Notice the closing bracket is HERE now
+
+    // 6. Fetch Maintenance & Location Requests (Available to everyone, especially Admins!)
+    const { data: maint } = await supabaseClient.from('maintenance_requests').select('*');
+    liveData.maintenance = maint || [];
+
+    const { data: locReqs } = await supabaseClient.from('location_requests').select('*');
+    liveData.locationRequests = locReqs || [];
 
     console.log("Data successfully loaded:", liveData);
     
@@ -636,35 +644,42 @@ async function logTransit(studentId, eventType) {
   }
 }
 
-// Maintenance Actions
-function submitMaintenanceRequest(busId, driverId, category, severity, description){
-  const newReq = {
-    id: 'm' + (DB.maintenance.length + 1),
-    busId, driverId, category, severity, description,
-    status: 'Pending', date: new Date().toISOString().split('T')[0]
-  };
-  DB.maintenance.unshift(newReq);
-  refresh();
+async function submitMaintenanceRequest(busId, driverId, category, severity, description){
+  if (!busId) return alert("No bus assigned.");
+  const { error } = await supabaseClient.from('maintenance_requests').insert([{
+    bus_id: busId, driver_id: driverId, category, severity, description
+  }]);
+  if (error) alert("Error: " + error.message);
+  else refreshDataSilently();
 }
 
-function updateMaintenanceStatus(id, newStatus){
-  const item = DB.maintenance.find(m => m.id === id);
-  if(item){ item.status = newStatus; refresh(); }
+async function submitLocationRequest(studentId, parentId, currentStop, requestedStop, reason){
+  const { error } = await supabaseClient.from('location_requests').insert([{
+    student_id: studentId, parent_id: parentId, current_stop: currentStop, requested_stop: requestedStop, reason
+  }]);
+  if (error) alert("Error: " + error.message);
+  else refreshDataSilently();
+}
+// Admin/Manager action: Update the status of a maintenance ticket
+async function updateMaintenanceStatus(id, newStatus){
+  const { error } = await supabaseClient
+    .from('maintenance_requests')
+    .update({ status: newStatus })
+    .eq('id', id);
+    
+  if (error) alert("Error updating status: " + error.message);
+  else refreshDataSilently();
 }
 
-// Location Change Request Actions
-function submitLocationRequest(studentId, parentId, currentStop, requestedStop, reason){
-  const newReq = {
-    id: 'lr' + (DB.locationRequests.length + 1),
-    studentId, parentId, currentStop, requestedStop, reason, status: 'Pending'
-  };
-  DB.locationRequests.unshift(newReq);
-  refresh();
-}
-
-function resolveLocationRequest(id, newStatus){
-  const req = DB.locationRequests.find(r => r.id === id);
-  if(req){ req.status = newStatus; refresh(); }
+// Admin action: Approve or reject a parent's location change request
+async function resolveLocationRequest(id, newStatus){
+  const { error } = await supabaseClient
+    .from('location_requests')
+    .update({ status: newStatus })
+    .eq('id', id);
+    
+  if (error) alert("Error updating request: " + error.message);
+  else refreshDataSilently();
 }
 
 // Vehicle Substitution Actions
@@ -821,20 +836,29 @@ function superAdminTab(){
   `;
 }
 
+
 /* ============================================================
-   ADMIN
+   ADMIN / MANAGER ROUTER
    ============================================================ */
 function adminTab(){
-  if(state.tab==='overview') return adminOverview();
-  if(state.tab==='register') return adminRegister();
-  if(state.tab==='map') return fleetMapBlock();
+  if(state.tab === 'overview') return adminOverview();
+  if(state.tab === 'register') return adminRegister();
+  if(state.tab === 'map') return liveMapBlock(null, true); // True to show all buses on the map
 }
+
+/* ============================================================
+   ADMIN OVERVIEW (Stats, Student Status, Tickets)
+   ============================================================ */
 function adminOverview(){
   const total = liveData.students.length;
   
   // Calculate stats based on real transit logs from Supabase
   const morningDone = liveData.transitLogs.filter(log => log.event_type === 'school_drop').length;
   const eveningDone = liveData.transitLogs.filter(log => log.event_type === 'home_drop').length;
+  
+  // Extract maintenance and location data
+  const mReqs = liveData.maintenance || [];
+  const lReqs = liveData.locationRequests || [];
   
   return `
     <div class="grid g3" style="margin-bottom:22px;">
@@ -843,72 +867,143 @@ function adminOverview(){
       <div class="card stat-card"><div class="label">Evening drop-offs</div><div class="value">${eveningDone}/${total}</div><div class="sub">dropped at home today</div></div>
     </div>
     
-    <div class="card card-pad">
+    <!-- 1. All Students At A Glance -->
+    <div class="card card-pad" style="margin-bottom: 22px;">
       <div class="section-title"><h3>Every student, at a glance</h3><span class="count">${todayStr()}</span></div>
-      <table>
-        <tr><th>Student</th><th>Class</th><th>Bus</th><th>Today's Status</th></tr>
+      <table style="width:100%; text-align:left; border-collapse:collapse;">
+        <tr><th style="padding:8px; border-bottom:1px solid #eee;">Student</th><th style="padding:8px; border-bottom:1px solid #eee;">Class</th><th style="padding:8px; border-bottom:1px solid #eee;">Bus</th><th style="padding:8px; border-bottom:1px solid #eee;">Today's Status</th></tr>
         ${liveData.students.length === 0 ? `<tr><td colspan="4" class="empty">No students found for this school yet.</td></tr>` : 
           liveData.students.map(s => {
             const sBus = bus(s.bus_id);
-            
-            // Find the latest log for this student today
             const sLogs = liveData.transitLogs.filter(l => l.student_id === s.id);
             const lastLog = sLogs.length > 0 ? sLogs[sLogs.length - 1].event_type : 'Not started';
-            
-            // Format the text nicely
             const statusText = lastLog === 'Not started' ? 'Pending' : lastLog.replace('_', ' ').toUpperCase();
             const statusClass = lastLog === 'Not started' ? 'pending' : 'done';
             
             return `
             <tr>
-              <td class="row-flex">
+              <td class="row-flex" style="padding:8px; border-bottom:1px solid #f5f5f5;">
                 <span class="avatar">${s.name.substring(0,2).toUpperCase()}</span>
                 <div class="stu-name">${s.name}</div>
               </td>
-              <td>${s.class_name}</td>
-              <td class="mono" style="font-size:12px;">${sBus.name}</td>
-              <td>${badge(statusText, statusClass)}</td>
+              <td style="padding:8px; border-bottom:1px solid #f5f5f5;">${s.class_name}</td>
+              <td class="mono" style="padding:8px; border-bottom:1px solid #f5f5f5; font-size:12px;">${sBus.name}</td>
+              <td style="padding:8px; border-bottom:1px solid #f5f5f5;">${badge(statusText, statusClass)}</td>
             </tr>`;
         }).join('')}
       </table>
     </div>
+
+    <!-- 2. Admin Ticket Management -->
+    <div class="grid g2">
+      <div class="card card-pad">
+        <div class="section-title"><h3>Vehicle Maintenance Tickets</h3></div>
+        ${mReqs.length === 0 ? `<div class="empty">No maintenance requests at this time.</div>` : `
+          <table style="width:100%; text-align:left; border-collapse: collapse;">
+            <tr style="font-size: 12px; color: var(--sub);">
+              <th style="padding:8px; border-bottom:1px solid #eee;">BUS / SEVERITY</th>
+              <th style="padding:8px; border-bottom:1px solid #eee;">ISSUE</th>
+              <th style="padding:8px; border-bottom:1px solid #eee;">STATUS</th>
+              <th style="padding:8px; border-bottom:1px solid #eee;">ACTION</th>
+            </tr>
+            ${mReqs.map(m => {
+              const bName = (liveData.buses.find(b => b.id === m.bus_id) || {}).name || 'Unknown Bus';
+              return `
+              <tr>
+                <td style="padding:12px 8px; border-bottom:1px solid #eee;"><b>${bName}</b><br><span style="font-size:12px; color:var(--sub);">${m.severity}</span></td>
+                <td style="padding:12px 8px; border-bottom:1px solid #eee;">${m.category}<br><span style="font-size:12px; color:var(--sub);">${m.description || ''}</span></td>
+                <td style="padding:12px 8px; border-bottom:1px solid #eee;">${badge(m.status, m.status === 'Completed' ? 'done' : (m.status === 'In Progress' ? 'wait' : 'pending'))}</td>
+                <td style="padding:12px 8px; border-bottom:1px solid #eee;">
+                  ${m.status === 'Pending' ? `<button class="mini-btn amber" onclick="updateMaintenanceStatus('${m.id}', 'In Progress')">Start</button>` : ''}
+                  ${m.status === 'In Progress' ? `<button class="mini-btn" style="background:#10b981;color:#fff;border:none;" onclick="updateMaintenanceStatus('${m.id}', 'Completed')">Fix</button>` : ''}
+                </td>
+              </tr>`
+            }).join('')}
+          </table>
+        `}
+      </div>
+
+      <div class="card card-pad">
+        <div class="section-title"><h3>Parent Stop Change Requests</h3></div>
+        ${lReqs.length === 0 ? `<div class="empty">No pending location requests.</div>` : `
+          <table style="width:100%; text-align:left; border-collapse: collapse;">
+            <tr style="font-size: 12px; color: var(--sub);">
+              <th style="padding:8px; border-bottom:1px solid #eee;">STUDENT</th>
+              <th style="padding:8px; border-bottom:1px solid #eee;">REQUESTED STOP</th>
+              <th style="padding:8px; border-bottom:1px solid #eee;">STATUS</th>
+              <th style="padding:8px; border-bottom:1px solid #eee;">ACTION</th>
+            </tr>
+            ${lReqs.map(r => {
+              const sName = (liveData.students.find(s => s.id === r.student_id) || {}).name || 'Unknown Student';
+              return `
+              <tr>
+                <td style="padding:12px 8px; border-bottom:1px solid #eee;"><b>${sName}</b><br><span style="font-size:12px; color:var(--sub);">${r.reason || ''}</span></td>
+                <td style="padding:12px 8px; border-bottom:1px solid #eee;">${r.requested_stop}</td>
+                <td style="padding:12px 8px; border-bottom:1px solid #eee;">${badge(r.status, r.status === 'Approved' ? 'done' : (r.status === 'Rejected' ? 'absent' : 'pending'))}</td>
+                <td style="padding:12px 8px; border-bottom:1px solid #eee;">
+                  ${r.status === 'Pending' ? `
+                    <button class="mini-btn" style="background:#10b981;color:#fff;border:none;margin-bottom:4px;" onclick="resolveLocationRequest('${r.id}', 'Approved')">Approve</button>
+                    <button class="mini-btn ghost" onclick="resolveLocationRequest('${r.id}', 'Rejected')">Reject</button>
+                  ` : ''}
+                </td>
+              </tr>`
+            }).join('')}
+          </table>
+        `}
+      </div>
+    </div>
   `;
 }
-function simpleBadge(done){ return done ? badge('Done','done') : badge('Pending','pending'); }
-function attendanceMiniSummary(s){
-  const periods=['p1','p2','p3'];
-  return periods.map(p=>{
-    const a = s.attendance[p];
-    if(!a.status) return `<span class="badge locked">P${p.slice(1)} ·</span>`;
-    const cls = a.status==='Present' ? 'done' : (a.status==='Absent' ? 'absent':'wait');
-    return `<span class="badge ${cls}" style="margin-right:3px;">P${p.slice(1)} ${a.status[0]}</span>`;
-  }).join(' ');
-}
+
+/* ============================================================
+   ADMIN ATTENDANCE REGISTER
+   ============================================================ */
 function adminRegister(){
+  // Fetch teachers from the live profiles table
+  const teachers = (liveData.profiles || []).filter(p => p.role === 'teacher');
+  
   return `
-    <div class="flow-note">◎ Full three-periodical attendance register — marked by the class teacher, approved by teacher and acknowledged by the student.</div>
-    ${DB.teachers.map(t=>`
+    <div class="flow-note">◎ Full three-periodical attendance register — marked live by class teachers.</div>
+    ${teachers.length === 0 ? `<div class="empty">No teachers found in the database.</div>` : ''}
+    
+    ${teachers.map(t => {
+      // Find students belonging to this specific teacher
+      const tStudents = liveData.students.filter(s => s.teacher_id === t.id);
+      
+      return `
       <div class="card card-pad" style="margin-bottom:16px;">
-        <div class="section-title"><h3>${t.classes.join(', ')}</h3><span class="count">Teacher: ${t.name}</span></div>
-        <table>
-          <tr><th>Student</th><th>Period 1</th><th>Period 2</th><th>Period 3</th></tr>
-          ${studentsForTeacher(t.id).map(s=>`
+        <div class="section-title">
+          <h3>Teacher: ${t.full_name || 'Unknown'}</h3>
+          <span class="count">${tStudents.length} Students</span>
+        </div>
+        <table style="width:100%; text-align:left; border-collapse:collapse;">
+          <tr><th style="padding:8px; border-bottom:1px solid #eee;">Student</th><th style="padding:8px; border-bottom:1px solid #eee;">Period 1</th><th style="padding:8px; border-bottom:1px solid #eee;">Period 2</th><th style="padding:8px; border-bottom:1px solid #eee;">Period 3</th></tr>
+          ${tStudents.length === 0 ? `<tr><td colspan="4" class="empty">No students assigned to this teacher.</td></tr>` : 
+            tStudents.map(s => `
             <tr>
-              <td class="row-flex"><span class="avatar">${s.initials}</span>${s.name}</td>
-              ${['p1','p2','p3'].map(p=>`<td>${registerCell(s,p)}</td>`).join('')}
+              <td class="row-flex" style="padding:8px; border-bottom:1px solid #f5f5f5;">
+                <span class="avatar">${s.name.substring(0,2).toUpperCase()}</span>${s.name}
+              </td>
+              <td style="padding:8px; border-bottom:1px solid #f5f5f5;">${registerCell(s, 'p1')}</td>
+              <td style="padding:8px; border-bottom:1px solid #f5f5f5;">${registerCell(s, 'p2')}</td>
+              <td style="padding:8px; border-bottom:1px solid #f5f5f5;">${registerCell(s, 'p3')}</td>
             </tr>`).join('')}
         </table>
       </div>
-    `).join('')}
+    `}).join('')}
   `;
 }
-function registerCell(s,p){
-  const a = s.attendance[p];
-  if(!a.status) return badge('Not marked','pending');
-  const cls = a.status==='Present' ? 'done' : (a.status==='Absent' ? 'absent':'wait');
-  const t = a.teacherApproved ? '✓ teacher' : '… teacher';
-  const st = a.studentApproved ? '✓ student' : '… student';
-  return `${badge(a.status,cls)}<div style="font-size:10.5px; color:var(--faint); margin-top:4px;">${t} · ${st}</div>`;
+
+function registerCell(s, p){
+  // Look up attendance in liveData instead of the old mock object
+  const attRecord = (liveData.attendance || []).find(a => a.student_id === s.id && a.period === p);
+  
+  if(!attRecord || !attRecord.status) return badge('Not marked','pending');
+  
+  const cls = attRecord.status === 'Present' ? 'done' : (attRecord.status === 'Absent' ? 'absent' : 'wait');
+  
+  // Return just the clean badge since we removed the student acknowledgment requirement
+  return `${badge(attRecord.status, cls)}`;
 }
 
 
@@ -1232,43 +1327,30 @@ function studentTab(){
    ============================================================ */
 function maintenanceView(){
   const isDriver = state.role === 'driver';
+  const myBus = liveData.buses.find(b => b.driver_id === state.userId);
+  
   return `
     ${isDriver ? `
       <div class="card card-pad" style="margin-bottom: 20px;">
-        <div class="section-title"><h3>Report Vehicle Maintenance Issue</h3></div>
+        <div class="section-title"><h3>Report Vehicle Issue</h3></div>
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
-          <select id="m-cat" class="att-select"><option value="Brakes">Brakes</option><option value="Engine">Engine</option><option value="AC">AC Unit</option><option value="Tires">Tires</option><option value="Electrical">Electrical</option></select>
-          <select id="m-sev" class="att-select"><option value="Low">Low Severity</option><option value="Medium">Medium Severity</option><option value="High">High / Urgent</option></select>
+          <select id="m-cat" class="att-select"><option value="Brakes">Brakes</option><option value="Engine">Engine</option><option value="AC">AC Unit</option><option value="Tires">Tires</option></select>
+          <select id="m-sev" class="att-select"><option value="Low">Low</option><option value="Medium">Medium</option><option value="High">High / Urgent</option></select>
         </div>
-        <textarea id="m-desc" placeholder="Describe the issue in detail..." style="width:100%; height:80px; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:12px; font-family:inherit;"></textarea>
-        <button class="btn-primary" onclick="
-          const cat = document.getElementById('m-cat').value;
-          const sev = document.getElementById('m-sev').value;
-          const desc = document.getElementById('m-desc').value;
-          if(desc){ submitMaintenanceRequest('${currentDriver()?.busId}', '${state.userId}', cat, sev, desc); }
-        ">Submit Request</button>
+        <textarea id="m-desc" placeholder="Describe the issue..." style="width:100%; height:80px; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:12px; font-family:inherit;"></textarea>
+        <button class="btn-primary" onclick="submitMaintenanceRequest('${myBus?.id}', '${state.userId}', document.getElementById('m-cat').value, document.getElementById('m-sev').value, document.getElementById('m-desc').value)">Submit Request</button>
       </div>
     ` : ''}
     <div class="card card-pad">
-      <div class="section-title"><h3>Vehicle Maintenance Register</h3><span class="count">${DB.maintenance.length} Records</span></div>
+      <div class="section-title"><h3>Maintenance Register</h3></div>
       <table>
-        <tr><th>Bus</th><th>Category</th><th>Severity</th><th>Description</th><th>Status</th><th>Action</th></tr>
-        ${DB.maintenance.map(m => `
+        <tr><th>Bus</th><th>Category</th><th>Severity</th><th>Status</th></tr>
+        ${liveData.maintenance.map(m => `
           <tr>
-            <td><b>${bus(m.busId)?.name || m.busId}</b></td>
+            <td><b>${bus(m.bus_id).name}</b></td>
             <td>${m.category}</td>
-            <td><span class="badge ${m.severity==='High'?'absent':(m.severity==='Medium'?'wait':'pending')}">${m.severity}</span></td>
-            <td>${m.description}</td>
-            <td><span class="badge ${m.status==='Completed'?'done':(m.status==='In Progress'?'wait':'pending')}">${m.status}</span></td>
-            <td>
-              ${state.role==='admin' || state.role==='transport_manager' ? `
-                <select onchange="updateMaintenanceStatus('${m.id}', this.value)" class="att-select">
-                  <option value="Pending" ${m.status==='Pending'?'selected':''}>Pending</option>
-                  <option value="In Progress" ${m.status==='In Progress'?'selected':''}>In Progress</option>
-                  <option value="Completed" ${m.status==='Completed'?'selected':''}>Completed</option>
-                </select>
-              ` : '—'}
-            </td>
+            <td><span class="badge ${m.severity==='High'?'absent':'wait'}">${m.severity}</span></td>
+            <td><span class="badge ${m.status==='Completed'?'done':'pending'}">${m.status}</span></td>
           </tr>
         `).join('')}
       </table>
@@ -1281,40 +1363,26 @@ function maintenanceView(){
    ============================================================ */
 function locationRequestsView(){
   const isParent = state.role === 'parent';
-  const p = isParent ? currentParent() : null;
-  const child = isParent ? student(p.childIds[0]) : null;
+  const child = isParent ? liveData.students[0] : null;
 
   return `
     ${isParent ? `
       <div class="card card-pad" style="margin-bottom: 20px;">
-        <div class="section-title"><h3>Request Pickup / Drop-off Stop Change</h3></div>
-        <p style="font-size:13px; color:var(--sub); margin-bottom:14px;">Child: <b>${child?.name}</b> (Current Stop: ${child?.morning ? 'Willow Court' : 'Assigned Stop'})</p>
-        <input type="text" id="lr-stop" placeholder="Requested New Bus Stop Address / Landmark" style="width:100%; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:10px;">
-        <textarea id="lr-reason" placeholder="Reason for change (e.g., Temporary housing, work relocation)..." style="width:100%; height:70px; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:12px; font-family:inherit;"></textarea>
-        <button class="btn-primary" onclick="
-          const newStop = document.getElementById('lr-stop').value;
-          const reason = document.getElementById('lr-reason').value;
-          if(newStop && reason){ submitLocationRequest('${child.id}', '${p.id}', 'Willow Court', newStop, reason); }
-        ">Submit Location Change Request</button>
+        <div class="section-title"><h3>Request Stop Change</h3></div>
+        <input type="text" id="lr-stop" placeholder="Requested New Stop" style="width:100%; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:10px;">
+        <textarea id="lr-reason" placeholder="Reason..." style="width:100%; height:70px; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:12px; font-family:inherit;"></textarea>
+        <button class="btn-primary" onclick="submitLocationRequest('${child?.id}', '${state.userId}', 'Current Assigned Stop', document.getElementById('lr-stop').value, document.getElementById('lr-reason').value)">Submit</button>
       </div>
     ` : ''}
     <div class="card card-pad">
       <div class="section-title"><h3>Stop Change Requests</h3></div>
       <table>
-        <tr><th>Student</th><th>Current Stop</th><th>Requested Stop</th><th>Reason</th><th>Status</th><th>Action</th></tr>
-        ${DB.locationRequests.map(r => `
+        <tr><th>Requested Stop</th><th>Reason</th><th>Status</th></tr>
+        ${liveData.locationRequests.map(r => `
           <tr>
-            <td><b>${student(r.studentId)?.name || 'Student'}</b></td>
-            <td>${r.currentStop}</td>
-            <td><b>${r.requestedStop}</b></td>
+            <td><b>${r.requested_stop}</b></td>
             <td>${r.reason}</td>
-            <td><span class="badge ${r.status==='Approved'?'done':(r.status==='Rejected'?'absent':'wait')}">${r.status}</span></td>
-            <td>
-              ${(state.role==='admin' || state.role==='transport_manager') && r.status==='Pending' ? `
-                <button class="mini-btn" onclick="resolveLocationRequest('${r.id}', 'Approved')">Approve</button>
-                <button class="mini-btn ghost" onclick="resolveLocationRequest('${r.id}', 'Rejected')">Reject</button>
-              ` : '—'}
-            </td>
+            <td><span class="badge pending">${r.status}</span></td>
           </tr>
         `).join('')}
       </table>
