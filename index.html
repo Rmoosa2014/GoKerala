@@ -910,37 +910,71 @@ function registerCell(s,p){
    PARENT
    ============================================================ */
 function parentTab(){
-  const p = currentParent();
-  const kids = p.childIds.map(student);
-  if(state.tab==='map') return liveMapBlock(kids[0].busId, false, kids[0]);
-  if(state.tab==='attendance') return parentAttendance(kids);
-  return kids.map(s=>`
+  // Route to the correct sub-tab
+  if (state.tab === 'attendance') return parentAttendance(liveData.students);
+  if (state.tab === 'map') return liveMapBlock(liveData.students[0]?.bus_id, false, liveData.students[0]);
+
+  const list = liveData.students;
+  
+  if (list.length === 0) {
+    return `<div class="empty">No children currently assigned to your account.</div>`;
+  }
+
+  return list.map(s => {
+    const sBus = bus(s.bus_id);
+    const sLogs = liveData.transitLogs.filter(l => l.student_id === s.id);
+    const sApprovals = (liveData.transitApprovals || []).filter(a => a.student_id === s.id);
+    
+    // Check Driver actions
+    const driverMorningPickup = sLogs.some(l => l.event_type === 'morning_pickup');
+    const driverHomeDrop = sLogs.some(l => l.event_type === 'home_drop');
+    
+    // Check Parent approvals
+    const parentApprovedMorning = sApprovals.some(a => a.event_type === 'morning_pickup' && a.approved_by_role === 'parent');
+    const parentApprovedEvening = sApprovals.some(a => a.event_type === 'home_drop' && a.approved_by_role === 'parent');
+
+    return `
     <div class="card card-pad" style="margin-bottom:18px;">
-      <div class="section-title"><h3 class="row-flex"><span class="avatar">${s.initials}</span>${s.name}</h3><span class="count">${s.cls} · ${bus(s.busId).name}</span></div>
-      <div class="stu-sub" style="margin:0 0 4px; font-weight:600; color:var(--sub);">MORNING PICKUP → SCHOOL ARRIVAL</div>
-      ${morningSteps(s,'parent')}
-      <div class="stu-sub" style="margin:14px 0 4px; font-weight:600; color:var(--sub);">SCHOOL PICKUP → HOME DROP-OFF</div>
-      ${eveningSteps(s,'parent')}
+      <div class="section-title">
+        <h3 class="row-flex"><span class="avatar">${s.name.substring(0,2).toUpperCase()}</span>${s.name}</h3>
+        <span class="count">${s.class_name} · ${sBus.name}</span>
+      </div>
+      
+      <div class="stu-sub" style="margin:0 0 4px; font-weight:600; color:var(--sub);">MORNING PICKUP</div>
+      ${stepper([
+        { label: 'Driver picked up', state: driverMorningPickup ? 'done' : 'pending' },
+        { label: 'Parent confirms', state: parentApprovedMorning ? 'done' : (driverMorningPickup ? 'active' : 'locked'), action: parentApprovedMorning ? null : (driverMorningPickup ? {label: 'Approve', fn: `logApproval('${s.id}', 'morning_pickup', 'parent')`} : null) }
+      ])}
+      
+      <div class="stu-sub" style="margin:14px 0 4px; font-weight:600; color:var(--sub);">EVENING HOME DROP-OFF</div>
+      ${stepper([
+        { label: 'Driver dropped at home', state: driverHomeDrop ? 'done' : 'pending' },
+        { label: 'Parent confirms', state: parentApprovedEvening ? 'done' : (driverHomeDrop ? 'active' : 'locked'), action: parentApprovedEvening ? null : (driverHomeDrop ? {label: 'Approve', fn: `logApproval('${s.id}', 'home_drop', 'parent')`} : null) }
+      ])}
     </div>
-  `).join('');
+  `}).join('');
 }
+
 function parentAttendance(kids){
-  return kids.map(s=>`
+  if(kids.length === 0) return `<div class="empty">No attendance data available.</div>`;
+  
+  return kids.map(s => {
+    return `
     <div class="card card-pad" style="margin-bottom:16px;">
-      <div class="section-title"><h3 class="row-flex"><span class="avatar">${s.initials}</span>${s.name}</h3><span class="count">${s.cls}</span></div>
+      <div class="section-title"><h3 class="row-flex"><span class="avatar">${s.name.substring(0,2).toUpperCase()}</span>${s.name}</h3><span class="count">${s.class_name}</span></div>
       <div class="grid g3">
-        ${['p1','p2','p3'].map(p=>{
-          const a=s.attendance[p];
-          const cls = !a.status?'pending':(a.status==='Present'?'done':(a.status==='Absent'?'absent':'wait'));
+        ${['p1','p2','p3'].map(p => {
+          const attRecord = (liveData.attendance || []).find(a => a.student_id === s.id && a.period === p);
+          const status = attRecord ? attRecord.status : null;
+          const cls = !status ? 'pending' : (status === 'Present' ? 'done' : (status === 'Absent' ? 'absent' : 'wait'));
           return `<div class="card card-pad" style="box-shadow:none; border:1px solid #E6E9F2;">
-            <div class="stu-sub">${a.label}</div>
-            <div style="margin:8px 0;">${a.status?badge(a.status,cls):badge('Not marked yet','pending')}</div>
-            <div style="font-size:11px; color:var(--faint);">Teacher approved: ${a.teacherApproved?'Yes':'No'}<br>Student acknowledged: ${a.studentApproved?'Yes':'No'}</div>
+            <div class="stu-sub">Period ${p.replace('p', '')}</div>
+            <div style="margin:8px 0;">${status ? badge(status, cls) : badge('Not marked yet', 'pending')}</div>
           </div>`;
         }).join('')}
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 /* ============================================================
