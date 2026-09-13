@@ -378,86 +378,6 @@
   transition: width 1s linear;
 }
 
-/* ============================================================
-   LOGICAL LIVE TRACKER STYLES
-   ============================================================ */
-.route-timeline {
-  position: relative;
-  margin: 20px 10px;
-  padding-left: 40px;
-  border-left: 4px solid var(--line);
-}
-
-.timeline-stop {
-  position: relative;
-  margin-bottom: 50px; /* Distance between stops */
-}
-
-/* The stop dot */
-.timeline-stop::before {
-  content: '';
-  position: absolute;
-  left: -48px; /* Centers the dot on the border */
-  top: 0;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: white;
-  border: 4px solid var(--line);
-  z-index: 2;
-}
-
-.timeline-stop.completed::before {
-  border-color: var(--indigo);
-  background: var(--indigo);
-}
-
-/* The moving bus icon */
-.live-bus-marker {
-  position: absolute;
-  left: -58px; /* Centers the bus on the line */
-  top: 0%; /* This is what our JavaScript will animate */
-  width: 32px;
-  height: 32px;
-  background: var(--amber);
-  border-radius: 50%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-size: 16px;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-  transition: top 1s linear; /* Smooth movement */
-  z-index: 10;
-  cursor: pointer;
-}
-
-/* The hover tooltip */
-.bus-tooltip {
-  visibility: hidden;
-  position: absolute;
-  left: 45px;
-  background: #1e293b;
-  color: white;
-  padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 12px;
-  white-space: nowrap;
-  opacity: 0;
-  transition: opacity 0.3s;
-  pointer-events: none;
-}
-
-.live-bus-marker:hover .bus-tooltip {
-  visibility: visible;
-  opacity: 1;
-}
-
-.tooltip-alert {
-  color: #fbbf24; /* Amber text for delays */
-  font-weight: bold;
-  margin-top: 4px;
-  display: block;
-}
 
   @media(max-width:820px){
     .login-wrap{grid-template-columns:1fr;}
@@ -1224,8 +1144,7 @@ function renderMain(){
     else body.innerHTML = ptaOverview();
   }
 
-  if(state.tab==='map'){ setTimeout(initMap, 30); }
-}
+  }
 function greeting(){
   if(state.role==='admin') return 'School Overview';
   if(state.role==='driver') return 'My Route Check-in';
@@ -1632,14 +1551,24 @@ function liveTrackerView(busId) {
   
   if (stops.length < 2) return `<div class="empty">Please add at least 2 stops in the Route Builder for this bus.</div>`;
 
-  // Calculate percentages so nodes are evenly spaced across the horizontal line
   const segmentWidth = 100 / (stops.length - 1);
 
   return `
     <div class="hz-card">
-      <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
-        <span style="color:#2563eb; font-size:24px;">📍</span>
-        <h2 style="margin:0; font-size:20px; color:#0f172a;">Live Fleet Map</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="color:#2563eb; font-size:24px;">📍</span>
+          <h2 style="margin:0; font-size:20px; color:#0f172a;">Live Fleet Map</h2>
+        </div>
+        
+        <!-- THE NEW DROPDOWN -->
+        <select class="att-select" style="padding:8px 16px; border-radius:8px;" onchange="
+          clearInterval(trackerInterval); 
+          document.querySelector('.hz-card').parentElement.innerHTML = liveTrackerView(this.value);
+          startLogicalTracker(this.value);
+        ">
+          ${liveData.buses.map(b => `<option value="${b.id}" ${b.id === busId ? 'selected' : ''}>${b.name}</option>`).join('')}
+        </select>
       </div>
       
       <div class="hz-timeline-container">
@@ -1685,7 +1614,7 @@ function liveTrackerView(busId) {
 }
 
 /* ============================================================
-   HORIZONTAL ANIMATION ENGINE
+   HORIZONTAL ANIMATION ENGINE (WITH X-RAY DEBUGGING)
    ============================================================ */
 let trackerInterval;
 let simulatedElapsedMinutes = 0; 
@@ -1701,7 +1630,7 @@ function startLogicalTracker(busId) {
   const segmentWidthPercentage = 100 / totalSegments;
 
   trackerInterval = setInterval(() => {
-    // 1. Simulating time passing (replace with actual timestamp diff in production)
+    // 1. Simulating time passing 
     simulatedElapsedMinutes += 0.3; 
 
     let currentSegmentIndex = 0;
@@ -1715,7 +1644,6 @@ function startLogicalTracker(busId) {
       }
     }
 
-    // Check if finished
     if (simulatedElapsedMinutes >= stops[stops.length - 1].est_time_from_start) {
       currentSegmentIndex = totalSegments - 1;
       isJourneyComplete = true;
@@ -1726,14 +1654,26 @@ function startLogicalTracker(busId) {
 
     // 3. Math for the Horizontal Position
     let positionPercentage = 100;
+    let progressWithinSegment = 1; // Default to 100% if journey is complete
     
     if (!isJourneyComplete) {
       const segmentDuration = nextStop.est_time_from_start - previousStop.est_time_from_start;
       const timeSpentInSegment = simulatedElapsedMinutes - previousStop.est_time_from_start;
-      const progressWithinSegment = timeSpentInSegment / segmentDuration;
+      progressWithinSegment = timeSpentInSegment / segmentDuration;
       
       positionPercentage = (currentSegmentIndex * segmentWidthPercentage) + (progressWithinSegment * segmentWidthPercentage);
     }
+
+    // -------------------------------------------------------------
+    // 🔍 X-RAY DEBUG: Print the math to the console so we can verify!
+    // -------------------------------------------------------------
+    console.table({
+      "Clock (Mins)": simulatedElapsedMinutes.toFixed(1),
+      "Current Segment": `Stop ${currentSegmentIndex + 1} to Stop ${currentSegmentIndex + 2}`,
+      "Segment Progress (%)": (progressWithinSegment * 100).toFixed(1) + "%",
+      "Screen Position (CSS Left)": positionPercentage.toFixed(2) + "%"
+    });
+    // -------------------------------------------------------------
 
     // 4. Update the DOM
     const busElement = document.getElementById('hz-animated-bus');
@@ -1743,12 +1683,10 @@ function startLogicalTracker(busId) {
     const footerCount = document.getElementById('hz-footer-count');
 
     if (busElement) {
-      // Move bus and draw green line
       busElement.style.left = `${positionPercentage}%`;
       fillLine.style.width = `${positionPercentage}%`;
       footerFill.style.width = `${positionPercentage}%`;
 
-      // Update text
       if (isJourneyComplete) {
         footerText.innerText = `Arrived at final destination`;
         footerCount.innerText = `${stops.length} of ${stops.length} stops completed`;
@@ -1758,7 +1696,6 @@ function startLogicalTracker(busId) {
         footerCount.innerText = `${currentSegmentIndex} of ${stops.length} stops completed`;
       }
 
-      // Turn passed nodes green with a checkmark
       stops.forEach((_, idx) => {
         const node = document.getElementById(`hz-node-${idx}`);
         const circle = document.getElementById(`hz-circle-${idx}`);
@@ -1891,10 +1828,18 @@ function adminTab(){
   if(state.tab === 'maintenance') return maintenanceView();
   if(state.tab === 'location_requests' || state.tab === 'location') return locationRequestsView();
   
+  // LIVE MAP INTEGRATION
+  if(state.tab === 'map' || state.tab === 'fleetMap') {
+    const activeBusId = liveData.buses.length > 0 ? liveData.buses[0].id : null;
+    if (!activeBusId) return `<div class="empty">No buses registered yet. Please add a bus.</div>`;
+    
+    setTimeout(() => { startLogicalTracker(activeBusId); }, 100);
+    return liveTrackerView(activeBusId);
+  }
+
   // These tabs need safe placeholders so they don't crash
   if(state.tab === 'calendar') return calendarView();
-  if(state.tab === 'map' || state.tab === 'fleetMap') return fleetMapSafe();
- if(state.tab === 'substitutions') return substitutionsView();
+  if(state.tab === 'substitutions') return substitutionsView();
   if(state.tab === 'incidents') return incidentsView();
   
   return adminOverview(); // Fallback
