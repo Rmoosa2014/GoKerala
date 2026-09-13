@@ -668,6 +668,23 @@ async function submitLocationRequest(studentId, parentId, currentStop, requested
   if (error) alert("Error: " + error.message);
   else refreshDataSilently();
 }
+
+// Driver action: Delete a pending maintenance ticket
+async function deleteMaintenanceRequest(id) {
+  if (!confirm("Are you sure you want to delete this request?")) return;
+  const { error } = await supabaseClient.from('maintenance_requests').delete().eq('id', id);
+  if (error) alert("Error deleting request: " + error.message);
+  else refreshDataSilently();
+}
+
+// Parent action: Delete a pending stop change request
+async function deleteLocationRequest(id) {
+  if (!confirm("Are you sure you want to delete this request?")) return;
+  const { error } = await supabaseClient.from('location_requests').delete().eq('id', id);
+  if (error) alert("Error deleting request: " + error.message);
+  else refreshDataSilently();
+}
+
 // Admin/Manager action: Update the status of a maintenance ticket
 async function updateMaintenanceStatus(id, newStatus){
   const { error } = await supabaseClient
@@ -1340,31 +1357,48 @@ function maintenanceView(){
   const isDriver = state.role === 'driver';
   const myBus = liveData.buses.find(b => b.driver_id === state.userId);
   
+  // Security & UI fix: Make sure the Driver only sees their own bus's tickets!
+  const myReqs = isDriver 
+    ? liveData.maintenance.filter(m => m.bus_id === myBus?.id) 
+    : liveData.maintenance;
+
   return `
     ${isDriver ? `
       <div class="card card-pad" style="margin-bottom: 20px;">
         <div class="section-title"><h3>Report Vehicle Issue</h3></div>
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
-          <select id="m-cat" class="att-select"><option value="Brakes">Brakes</option><option value="Engine">Engine</option><option value="AC">AC Unit</option><option value="Tires">Tires</option></select>
+          <select id="m-cat" class="att-select"><option value="Brakes">Brakes</option><option value="Engine">Engine</option><option value="AC">AC Unit</option><option value="Tires">Tires</option><option value="Other">Other</option></select>
           <select id="m-sev" class="att-select"><option value="Low">Low</option><option value="Medium">Medium</option><option value="High">High / Urgent</option></select>
         </div>
         <textarea id="m-desc" placeholder="Describe the issue..." style="width:100%; height:80px; padding:10px; border-radius:10px; border:1px solid #D7DCE8; margin-bottom:12px; font-family:inherit;"></textarea>
         <button class="btn-primary" onclick="submitMaintenanceRequest('${myBus?.id}', '${state.userId}', document.getElementById('m-cat').value, document.getElementById('m-sev').value, document.getElementById('m-desc').value)">Submit Request</button>
       </div>
     ` : ''}
+    
     <div class="card card-pad">
       <div class="section-title"><h3>Maintenance Register</h3></div>
-      <table>
-        <tr><th>Bus</th><th>Category</th><th>Severity</th><th>Status</th></tr>
-        ${liveData.maintenance.map(m => `
-          <tr>
-            <td><b>${bus(m.bus_id).name}</b></td>
-            <td>${m.category}</td>
-            <td><span class="badge ${m.severity==='High'?'absent':'wait'}">${m.severity}</span></td>
-            <td><span class="badge ${m.status==='Completed'?'done':'pending'}">${m.status}</span></td>
+      ${myReqs.length === 0 ? `<div class="empty">No maintenance requests found.</div>` : `
+        <table style="width:100%; text-align:left; border-collapse: collapse;">
+          <tr style="font-size: 12px; color: var(--sub);">
+            <th style="padding:8px; border-bottom:1px solid #eee;">BUS / ISSUE</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">SEVERITY</th>
+            <th style="padding:8px; border-bottom:1px solid #eee;">STATUS</th>
+            ${isDriver ? `<th style="padding:8px; border-bottom:1px solid #eee;">ACTION</th>` : ''}
           </tr>
-        `).join('')}
-      </table>
+          ${myReqs.map(m => `
+            <tr>
+              <td style="padding:12px 8px; border-bottom:1px solid #eee;"><b>${bus(m.bus_id).name}</b><br><span style="font-size:12px; color:var(--sub);">${m.category} — ${m.description || ''}</span></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #eee;"><span class="badge ${m.severity==='High'?'absent':(m.severity==='Medium'?'wait':'pending')}">${m.severity}</span></td>
+              <td style="padding:12px 8px; border-bottom:1px solid #eee;">${badge(m.status, m.status === 'Completed' ? 'done' : (m.status === 'In Progress' ? 'wait' : 'pending'))}</td>
+              ${isDriver ? `
+                <td style="padding:12px 8px; border-bottom:1px solid #eee;">
+                  ${m.status !== 'Completed' ? `<button class="mini-btn ghost" onclick="deleteMaintenanceRequest('${m.id}')">Delete</button>` : `<span style="font-size:11px; color:var(--faint);">Locked</span>`}
+                </td>
+              ` : ''}
+            </tr>
+          `).join('')}
+        </table>
+      `}
     </div>
   `;
 }
@@ -1376,7 +1410,6 @@ function locationRequestsView(){
   const isParent = state.role === 'parent';
   const child = isParent ? liveData.students[0] : null;
 
-  // Security & UI fix: Make sure parents only see their own requests!
   const myReqs = isParent 
     ? liveData.locationRequests.filter(r => r.parent_id === state.userId) 
     : liveData.locationRequests;
@@ -1399,12 +1432,18 @@ function locationRequestsView(){
             <th style="padding:8px; border-bottom:1px solid #eee;">REQUESTED STOP</th>
             <th style="padding:8px; border-bottom:1px solid #eee;">REASON</th>
             <th style="padding:8px; border-bottom:1px solid #eee;">STATUS</th>
+            ${isParent ? `<th style="padding:8px; border-bottom:1px solid #eee;">ACTION</th>` : ''}
           </tr>
           ${myReqs.map(r => `
             <tr>
               <td style="padding:12px 8px; border-bottom:1px solid #eee;"><b>${r.requested_stop}</b></td>
               <td style="padding:12px 8px; border-bottom:1px solid #eee;">${r.reason || ''}</td>
               <td style="padding:12px 8px; border-bottom:1px solid #eee;">${badge(r.status, r.status === 'Approved' ? 'done' : (r.status === 'Rejected' ? 'absent' : 'pending'))}</td>
+              ${isParent ? `
+                <td style="padding:12px 8px; border-bottom:1px solid #eee;">
+                  ${r.status === 'Pending' ? `<button class="mini-btn ghost" onclick="deleteLocationRequest('${r.id}')">Delete</button>` : `<span style="font-size:11px; color:var(--faint);">Locked</span>`}
+                </td>
+              ` : ''}
             </tr>
           `).join('')}
         </table>
@@ -1543,15 +1582,15 @@ function initMap(){
 let realtimeChannel = null;
 
 function setupRealtime() {
-  if (realtimeChannel) return; // Prevent creating duplicate listeners
+  if (realtimeChannel) return;
 
   console.log("Starting real-time sync...");
   realtimeChannel = supabaseClient.channel('school-transit-updates')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'transit_logs' }, payload => refreshDataSilently())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'transit_approvals' }, payload => refreshDataSilently())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, payload => refreshDataSilently())
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'maintenance_requests' }, payload => refreshDataSilently()) // NEW
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'location_requests' }, payload => refreshDataSilently()) // NEW
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'maintenance_requests' }, payload => refreshDataSilently())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'location_requests' }, payload => refreshDataSilently())
     .subscribe();
 }
 
