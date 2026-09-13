@@ -1065,13 +1065,23 @@ function teacherAttendanceCell(s, p){
   const attRecord = liveData.attendance ? liveData.attendance.find(a => a.student_id === s.id && a.period === p) : null;
   const currentStatus = attRecord ? attRecord.status : '';
 
+  // A mini helper function to draw the color-coded buttons using our existing badge CSS
+  const renderBtn = (val, label, activeClass) => {
+    const isActive = currentStatus === val;
+    const btnClass = isActive ? activeClass : 'locked';
+    const icon = isActive ? '✓ ' : '';
+    
+    return `<button class="badge ${btnClass}" style="border:none; cursor:pointer; margin-right:4px; font-family:inherit; padding:6px 12px; transition:0.2s;" onclick="logAttendance('${s.id}', '${p}', '${val}')">
+      ${icon}${label}
+    </button>`;
+  };
+
   return `<td>
-    <select class="att-select" onchange="logAttendance('${s.id}', '${p}', this.value)">
-      <option value="">Mark…</option>
-      <option value="Present" ${currentStatus === 'Present' ? 'selected' : ''}>Present</option>
-      <option value="Late" ${currentStatus === 'Late' ? 'selected' : ''}>Late</option>
-      <option value="Absent" ${currentStatus === 'Absent' ? 'selected' : ''}>Absent</option>
-    </select>
+    <div style="display:flex; gap:4px; align-items:center;">
+      ${renderBtn('Present', 'Present', 'done')}
+      ${renderBtn('Late', 'Late', 'wait')}
+      ${renderBtn('Absent', 'Absent', 'absent')}
+    </div>
   </td>`;
 }
 
@@ -1147,19 +1157,6 @@ async function undoApproval(studentId, eventType, role) {
   }
 }
 
-// Toggle a student's attendance acknowledgment
-async function toggleAttendanceAck(recordId, currentState) {
-  const { error } = await supabaseClient
-    .from('attendance')
-    .update({ student_acknowledged: !currentState }) // Flips true to false, or false to true
-    .eq('id', recordId);
-    
-  if (error) {
-    alert("Error updating record: " + error.message);
-  } else {
-    refreshDataSilently(); // Triggers the live visual update instantly!
-  }
-}
 
 /* ============================================================
    STUDENT
@@ -1212,36 +1209,24 @@ function studentTab(){
     </div>`;
   }
 
-  // VIEW 2: MY DAY (Attendance Acknowledgment)
+  // VIEW 2: MY DAY (Read-Only Attendance Viewer)
   return `
-    <div class="flow-note">● Acknowledge your attendance records for today once your teacher marks them.</div>
+    <div class="flow-note">● View your attendance records for today as marked by your teacher.</div>
     <div class="grid g3">
       ${['p1','p2','p3'].map(p => {
         const attRecord = (liveData.attendance || []).find(a => a.period === p);
         const status = attRecord ? attRecord.status : null;
-        const isAck = attRecord ? attRecord.student_acknowledged : false;
-        
         const cls = !status ? 'pending' : (status === 'Present' ? 'done' : (status === 'Absent' ? 'absent' : 'wait'));
         
         return `
         <div class="card card-pad">
-          <div class="stu-sub">Period ${p.replace('p', '')}</div>
-          <div style="margin:10px 0;">${status ? badge(status, cls) : badge('Not marked yet', 'pending')}</div>
-          
-          <div style="margin-top:14px;">
-            ${status ? 
-              `<button class="mini-btn ${isAck ? 'ghost' : 'amber'}" onclick="toggleAttendanceAck('${attRecord.id}', ${isAck})">
-                ${isAck ? 'Undo Acknowledgment' : 'Acknowledge Record'}
-               </button>` 
-              : `<button class="mini-btn ghost" disabled>Waiting for Teacher...</button>`
-            }
-          </div>
+          <div class="stu-sub" style="margin-bottom:10px; font-weight:600; color:var(--sub);">Period ${p.replace('p', '')}</div>
+          <div>${status ? badge(status, cls) : badge('Not marked yet', 'pending')}</div>
         </div>`;
       }).join('')}
     </div>
   `;
 }
-
 /* ============================================================
    MAINTENANCE VIEW
    ============================================================ */
