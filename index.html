@@ -278,6 +278,106 @@
 
   .flow-note{background:var(--indigo-soft); color:#2A3E9E; border-radius:10px; padding:10px 14px; font-size:12.5px; margin-bottom:16px; display:flex; gap:8px; align-items:flex-start;}
 
+
+/* ============================================================
+   HORIZONTAL LIVE TRACKER STYLES
+   ============================================================ */
+.hz-card {
+  background: white;
+  border-radius: 12px;
+  padding: 30px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+}
+
+.hz-timeline-container {
+  position: relative;
+  margin: 80px 40px 120px 40px; /* Spacing for bus on top, labels on bottom */
+  height: 4px;
+  background: #e2e8f0; /* Grey track */
+  border-radius: 2px;
+}
+
+.hz-track-fill {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  background: #10b981; /* Green fill */
+  border-radius: 2px;
+  width: 0%; /* Controlled by JS */
+  transition: width 1s linear;
+}
+
+.hz-node {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 3;
+}
+
+.hz-circle {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: white;
+  border: 4px solid #cbd5e1;
+  display: flex; justify-content: center; align-items: center;
+  font-size: 12px;
+  font-weight: bold;
+  transition: all 0.3s;
+}
+
+/* When a stop is completed, it turns green with a checkmark */
+.hz-node.completed .hz-circle {
+  border-color: #10b981;
+  background: #10b981;
+  color: white;
+}
+
+.hz-label {
+  position: absolute;
+  top: 35px;
+  width: 140px;
+  text-align: center;
+}
+
+.hz-bus-container {
+  position: absolute;
+  top: -45px; /* Sits directly on the line */
+  left: 0%; /* Controlled by JS */
+  transform: translateX(-50%);
+  font-size: 32px;
+  z-index: 10;
+  transition: left 1s linear;
+}
+
+/* The Status Footer */
+.hz-status-footer {
+  border: 1px solid #e2e8f0;
+  border-radius: 50px; 
+  padding: 12px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+}
+
+.hz-status-bar {
+  flex: 1;
+  margin: 0 20px;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.hz-status-fill {
+  height: 100%;
+  background: #10b981;
+  width: 0%; /* Controlled by JS */
+  transition: width 1s linear;
+}
+
 /* ============================================================
    LOGICAL LIVE TRACKER STYLES
    ============================================================ */
@@ -1524,64 +1624,90 @@ async function saveNewRouteStop(busId, orderNum, previousCumulativeTime) {
 
 
 /* ============================================================
-   LOGICAL LIVE TRACKER COMPONENT
+   HORIZONTAL LIVE TRACKER COMPONENT
    ============================================================ */
 function liveTrackerView(busId) {
-  // Grab the route for this specific bus, sorted by order
   const stops = liveData.routes.filter(r => r.bus_id === busId).sort((a, b) => a.stop_order - b.stop_order);
+  const bus = liveData.buses.find(b => b.id === busId) || { name: 'Unknown Bus' };
   
-  if (stops.length === 0) return `<div class="empty">No route configured for this bus yet.</div>`;
+  if (stops.length < 2) return `<div class="empty">Please add at least 2 stops in the Route Builder for this bus.</div>`;
+
+  // Calculate percentages so nodes are evenly spaced across the horizontal line
+  const segmentWidth = 100 / (stops.length - 1);
 
   return `
-    <div class="card card-pad">
-      <div class="section-title"><h3>◈ Live Transit Progress</h3></div>
+    <div class="hz-card">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
+        <span style="color:#2563eb; font-size:24px;">📍</span>
+        <h2 style="margin:0; font-size:20px; color:#0f172a;">Live Fleet Map</h2>
+      </div>
       
-      <div class="route-timeline" id="active-timeline">
+      <div class="hz-timeline-container">
+        <!-- The Green Progress Line -->
+        <div class="hz-track-fill" id="hz-fill-line"></div>
         
         <!-- The Moving Bus -->
-        <div class="live-bus-marker" id="animated-bus" style="top: 0%;">
+        <div class="hz-bus-container" id="hz-animated-bus">
+          <span style="position:absolute; left:-15px; top:10px; font-size:14px; color:#38bdf8; letter-spacing:-2px;">💨</span>
           🚌
-          <div class="bus-tooltip" id="bus-tooltip-content">
-            <b>Next Stop:</b> <span id="tt-next">Loading...</span><br>
-            <b>Arriving In:</b> <span id="tt-time">-- mins</span>
-            <span class="tooltip-alert" id="tt-delay" style="display:none;">⚠️ Delayed: 0 mins</span>
-          </div>
         </div>
 
         <!-- The Stops -->
-        ${stops.map((s, index) => `
-          <div class="timeline-stop" id="stop-node-${index}">
-            <h4 style="margin:0; color: var(--text);">${s.stop_name}</h4>
-            <span style="font-size:12px; color:var(--sub);">Scheduled: +${s.est_time_from_start} mins from start</span>
-          </div>
-        `).join('')}
+        ${stops.map((s, index) => {
+          const leftPosition = index * segmentWidth;
+          return `
+            <div class="hz-node" id="hz-node-${index}" style="left: ${leftPosition}%;">
+              <div class="hz-circle" id="hz-circle-${index}"></div>
+              <div class="hz-label">
+                <div style="font-weight:700; font-size:13px; color:#1e293b;">${s.stop_name}</div>
+                <div style="font-size:11px; color:#64748b; margin-top:4px;">Scheduled: +${s.est_time_from_start} mins from start</div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+
+      <!-- Footer Status Bar -->
+      <div class="hz-status-footer">
+        <div style="display:flex; align-items:center; gap:10px; font-weight:600; font-size:13px; color:#0f172a;">
+          <span style="background:#10b981; color:white; padding:4px; border-radius:50%; font-size:12px;">🚌</span>
+          ${bus.name} <span style="color:#64748b; font-weight:400;">—</span> <span id="hz-footer-text">Calculating route...</span>
+        </div>
         
+        <div class="hz-status-bar"><div class="hz-status-fill" id="hz-footer-fill"></div></div>
+        
+        <div style="font-size:13px; color:#64748b; display:flex; align-items:center; gap:6px;">
+          <span id="hz-footer-count">0 of ${stops.length} stops</span> <span style="color:#10b981;">✔</span>
+        </div>
       </div>
     </div>
   `;
 }
 
-
 /* ============================================================
-   ANIMATION & TIME CALCULATION ENGINE
+   HORIZONTAL ANIMATION ENGINE
    ============================================================ */
 let trackerInterval;
-let simulatedElapsedMinutes = 0; // Temporary variable to make the bus move for testing
+let simulatedElapsedMinutes = 0; 
 
 function startLogicalTracker(busId) {
   clearInterval(trackerInterval);
-  simulatedElapsedMinutes = 0; // Reset timer
+  simulatedElapsedMinutes = 0;
 
   const stops = liveData.routes.filter(r => r.bus_id === busId).sort((a, b) => a.stop_order - b.stop_order);
-  if (stops.length < 2) return; // Need at least 2 stops to animate
+  if (stops.length < 2) return;
+
+  const totalSegments = stops.length - 1;
+  const segmentWidthPercentage = 100 / totalSegments;
 
   trackerInterval = setInterval(() => {
-    // 1. In production, this will look at the exact time the driver pressed "Pickup"
-    simulatedElapsedMinutes += 0.5; // Simulating time passing very quickly for the prototype
+    // 1. Simulating time passing (replace with actual timestamp diff in production)
+    simulatedElapsedMinutes += 0.3; 
 
     let currentSegmentIndex = 0;
+    let isJourneyComplete = false;
 
-    // 2. Figure out which two stops the bus is currently between
+    // 2. Find current segment
     for (let i = 0; i < stops.length - 1; i++) {
       if (simulatedElapsedMinutes >= stops[i].est_time_from_start && simulatedElapsedMinutes < stops[i+1].est_time_from_start) {
         currentSegmentIndex = i;
@@ -1589,56 +1715,64 @@ function startLogicalTracker(busId) {
       }
     }
 
+    // Check if finished
+    if (simulatedElapsedMinutes >= stops[stops.length - 1].est_time_from_start) {
+      currentSegmentIndex = totalSegments - 1;
+      isJourneyComplete = true;
+    }
+
     const previousStop = stops[currentSegmentIndex];
     const nextStop = stops[currentSegmentIndex + 1];
 
-    if (!nextStop) {
-      clearInterval(trackerInterval); // Journey complete
-      return;
+    // 3. Math for the Horizontal Position
+    let positionPercentage = 100;
+    
+    if (!isJourneyComplete) {
+      const segmentDuration = nextStop.est_time_from_start - previousStop.est_time_from_start;
+      const timeSpentInSegment = simulatedElapsedMinutes - previousStop.est_time_from_start;
+      const progressWithinSegment = timeSpentInSegment / segmentDuration;
+      
+      positionPercentage = (currentSegmentIndex * segmentWidthPercentage) + (progressWithinSegment * segmentWidthPercentage);
     }
 
-    // 3. Calculate Math for the UI
-    const segmentDuration = nextStop.est_time_from_start - previousStop.est_time_from_start;
-    const timeSpentInSegment = simulatedElapsedMinutes - previousStop.est_time_from_start;
-    const segmentProgressPercentage = timeSpentInSegment / segmentDuration;
+    // 4. Update the DOM
+    const busElement = document.getElementById('hz-animated-bus');
+    const fillLine = document.getElementById('hz-fill-line');
+    const footerText = document.getElementById('hz-footer-text');
+    const footerFill = document.getElementById('hz-footer-fill');
+    const footerCount = document.getElementById('hz-footer-count');
 
-    const remainingMinutes = Math.ceil(segmentDuration - timeSpentInSegment);
+    if (busElement) {
+      // Move bus and draw green line
+      busElement.style.left = `${positionPercentage}%`;
+      fillLine.style.width = `${positionPercentage}%`;
+      footerFill.style.width = `${positionPercentage}%`;
 
-    // Simulated Delay Logic: If traffic is bad, we add a delay
-    const currentDelay = 0; // Change this to a positive number to test the delay UI!
-
-    // 4. Update the DOM (Move the bus and update the Tooltip)
-    const busElement = document.getElementById('animated-bus');
-    const ttNext = document.getElementById('tt-next');
-    const ttTime = document.getElementById('tt-time');
-    const ttDelay = document.getElementById('tt-delay');
-    const stopNodes = document.querySelectorAll('.timeline-stop');
-
-    if (busElement && ttNext) {
-      // Calculate top position: (Segment Index * 100% of segment height) + (Progress * 100% of segment height)
-      // Since our CSS margins are 50px, each segment is mathematically equal in the DOM
-      const positionPixels = (currentSegmentIndex * 50) + (segmentProgressPercentage * 50);
-      busElement.style.top = `${positionPixels}px`;
-
-      // Update Tooltip Text
-      ttNext.innerText = nextStop.stop_name;
-      ttTime.innerText = `${remainingMinutes + currentDelay} mins`;
-
-      if (currentDelay > 0) {
-        ttDelay.innerText = `⚠️ Delayed: ${currentDelay} mins`;
-        ttDelay.style.display = 'block';
-        busElement.style.background = '#ef4444'; // Turn bus red if delayed
+      // Update text
+      if (isJourneyComplete) {
+        footerText.innerText = `Arrived at final destination`;
+        footerCount.innerText = `${stops.length} of ${stops.length} stops completed`;
+        clearInterval(trackerInterval);
       } else {
-        ttDelay.style.display = 'none';
-        busElement.style.background = 'var(--amber)';
+        footerText.innerText = `On the way to ${nextStop.stop_name}`;
+        footerCount.innerText = `${currentSegmentIndex} of ${stops.length} stops completed`;
       }
 
-      // Mark passed stops as completed
-      stopNodes.forEach((node, idx) => {
-        if (idx <= currentSegmentIndex) node.classList.add('completed');
+      // Turn passed nodes green with a checkmark
+      stops.forEach((_, idx) => {
+        const node = document.getElementById(`hz-node-${idx}`);
+        const circle = document.getElementById(`hz-circle-${idx}`);
+        
+        if (idx <= currentSegmentIndex || isJourneyComplete) {
+          node.classList.add('completed');
+          circle.innerHTML = '✔';
+        } else {
+          node.classList.remove('completed');
+          circle.innerHTML = '';
+        }
       });
     }
-  }, 1000); // Runs every 1 second for prototype smoothness
+  }, 1000); 
 }
 
 
